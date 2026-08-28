@@ -1,29 +1,31 @@
 import random
 import requests
 from django.conf import settings
-from .rabbitmq_publisher import publish_otp 
+from .rabbitmq_publisher import publish_otp  #AR
 
 def generate_otp():
     return str(random.randint(100000, 999999))
 
+
 def send_otp(email, otp, username):
-    
+    #  1. نحاول RabbitMQ أولاً
     try:
         publish_otp(email, otp)
         print("OTP sent via RabbitMQ")
 
-       
+        #  إذا نجح، لا نستخدم HTTP
         return {"message": "OTP sent via RabbitMQ"}
 
     except Exception as e:
         print("RabbitMQ failed, fallback to HTTP:", str(e))
 
+    #  2. fallback إلى HTTP فقط إذا فشل RabbitMQ
     url = settings.NOTIFICATION_SERVICE_URL
 
     payload = {
         "email": email,
         "otp": otp,
-        "username": username 
+        "username": username
     }
 
     try:

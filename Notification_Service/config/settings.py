@@ -151,8 +151,8 @@ EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 
-EMAIL_HOST_USER = "moeinassistant@gmail.com"
-EMAIL_HOST_PASSWORD = "zgpdpmoxnkyhpkjh"
+EMAIL_HOST_USER = "moeinassistant@gmail.com"      # Email
+EMAIL_HOST_PASSWORD = "zgpdpmoxnkyhpkjh"     # App Password
 
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
@@ -160,7 +160,7 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 
 
-# CloudAMQP
+#CloudAMQP
 import os
 from dotenv import load_dotenv
 
