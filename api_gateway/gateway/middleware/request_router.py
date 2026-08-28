@@ -15,6 +15,9 @@ class RequestRouterMiddleware:
             'course': settings.SERVICES['course'].rstrip('/'),
             'summarizer': settings.SERVICES['summarizer'].rstrip('/'),
             'chatbot': settings.SERVICES['chatbot'].rstrip('/'),
+
+            # ✅ الحل هنا
+            #'notifications': settings.SERVICES['notifications'].rstrip('/'),
         }
 
         # Map URL paths to services — keep specific/longer paths here
@@ -28,7 +31,13 @@ class RequestRouterMiddleware:
             '/api/check-student': 'account',
             '/api/check-user': 'account',
             '/api/me': 'account',
+            '/api/register-initiate': 'account',
+            '/api/register-initiate/': 'account',
+            '/api/verify-otp': 'account',
+            '/api/verify-otp/': 'account',
 
+            #"/api/notifications/": "http://127.0.0.1:8005/api/notifications/",    #AYO
+            '/api/notifications/': 'notifications',            #AYO
             # course-related (make sure media is included)
             '/api/media': 'course',
             '/api/media/': 'course',

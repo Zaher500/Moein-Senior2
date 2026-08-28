@@ -83,6 +83,7 @@ SERVICES = {
     'gateway': os.environ.get('GATEWAY_URL', 'https://marielle-subchondral-rex.ngrok-free.dev'),
     'summarizer': os.environ.get('SUMMARIZER_SERVICE_URL', 'http://localhost:8003'),
     'chatbot': os.environ.get('CHATBOT_SERVICE_URL', 'http://localhost:8004'),
+    'notifications': os.environ.get('NOTIFICATION_SERVICE_URL', 'http://localhost:8005'),  #AYO
 }
 
 
@@ -93,6 +94,7 @@ PUBLIC_ENDPOINTS = [
     '/api/login/',
     '/health/',
     '/api/decode-token/',
+    '/api/register-initiate/',
 ]
 
 

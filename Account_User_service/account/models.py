@@ -53,3 +53,30 @@ class Student(models.Model):
     class Meta:
         db_table = 'Student'
 
+
+
+
+#A
+from django.utils import timezone
+from datetime import timedelta
+
+class PendingRegistration(models.Model):
+    email = models.EmailField(unique=True)
+    username = models.CharField(max_length=150)
+
+    password = models.CharField(max_length=128)  # سيتم تخزينه hashed
+
+    phone = models.CharField(max_length=10, blank=True, null=True)
+    
+    otp_hash = models.CharField(max_length=255)
+    otp_expires_at = models.DateTimeField()
+
+    otp_attempts = models.IntegerField(default=0)  #A
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def is_expired(self):
+        return timezone.now() > self.otp_expires_at
+
+    def __str__(self):
+        return self.email

@@ -17,6 +17,11 @@ class JWTAuthMiddleware:
             '/api/decode-token/',
             '/api/check-student/',  # used by course service
             '/api/check-user/',     # used by account service
+            '/api/register-initiate/',
+            '/api/verify-otp/',
+
+            # ✅ الحل النهائي
+            #'/api/notifications/',
         ]
 
         for path in public_paths:
