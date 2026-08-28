@@ -324,28 +324,31 @@ def check_user_exists(request, user_id):
     except Student.DoesNotExist:
         return Response({'exists': False}, status=404)
 
-
+#A
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register_initiate(request):
-    
+    """
+    Step 1: Start registration (send OTP)
+    """
     print("Received registration initiation request with data:", request.data)
     serializer = UserSignupSerializer(data=request.data)
 
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
 
-    data = serializer.validated_data
+    data = serializer.validated_data              # 
 
     username = data['username']
     email = data['email']
     password = data['password']
     phone = data['phone']
 
-   
+    # Generate OTP
     otp = generate_otp()
-    otp_hash = make_password(otp) 
-    
+    otp_hash = make_password(otp)               
+
+    # Hash password
     password_hash = make_password(password)
 
     expires_at = timezone.now() + timedelta(minutes=10)
@@ -377,11 +380,15 @@ def register_initiate(request):
     }, status=200)
 
 
+#A
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @transaction.atomic
 def verify_otp(request):
-    
+    """
+    Step 2: Verify OTP and complete signup
+    """
     email = request.data.get("email")
     otp = request.data.get("otp")
 
@@ -407,18 +414,19 @@ def verify_otp(request):
             status=400
         )
 
-    # Check OTP 
+    # Check OTP
     if not check_password(otp, pending.otp_hash):
         pending.otp_attempts += 1
         pending.save()
         return Response({"error": "Invalid OTP"}, status=400)
-    
+
+    #  OTP صحيح → إنشاء الحساب
 
     signup_data = {
         "username": pending.username,
         "email": pending.email,
-        "password": pending.password,
-        "password_confirm": pending.password,  
+        "password": pending.password,   # hashed
+        "password_confirm": pending.password,  # نفس الشيء لتجاوز validation
         "phone": pending.phone
     }
 
@@ -428,14 +436,15 @@ def verify_otp(request):
         return Response(serializer.errors, status=400)
 
     user = serializer.save()
-    
+
+    #  مهم: نعدل الباسورد لأنه already hashed
     user.password = pending.password
     user.save()
 
-   
+    # حذف pending
     pending.delete()
 
-    
+    # جلب student
     student = Student.objects.get(user_id=user)
 
     return Response({

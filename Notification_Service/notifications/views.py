@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .serializers import SendOTPSerializer
-from .utils import send_email_otp  
+from .utils import send_email_otp  #AR
 
 class SendOTPEmailAPIView(APIView):
     authentication_classes = []
@@ -100,6 +100,7 @@ class MarkNotificationReadAPIView(APIView):
     
 
 
+#AYO  مشان اختبار بوستمان بس
 import pika
 import json
 

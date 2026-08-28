@@ -15,7 +15,7 @@ def publish_otp(email, otp):
         message = {
         "email": email,
         "otp": otp,
-        "retry_count": 0  
+        "retry_count": 0   #  جديد
         }
 
         channel.basic_publish(

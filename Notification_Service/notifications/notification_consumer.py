@@ -30,10 +30,10 @@ def callback(ch, method, properties, body):
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as e:
-        print("Error:", str(e))
+        print(" Error:", str(e))
 
 
-# Local RabbitMQ (كما هو)
+#Local RabbitMQ 
 def start_local_consumer():
     connection = pika.BlockingConnection(
         pika.ConnectionParameters(host='localhost')
@@ -59,8 +59,8 @@ def start_cloud_consumer():
     if not cloud_url:
         print("CLOUDAMQP_URL not set, skipping cloud consumer")
         return
-
-    params = pika.URLParameters(cloud_url)
+    # cloud_url format: amqps://username:password@host/vhost
+    params = pika.URLParameters(cloud_url)   
 
     connection = pika.BlockingConnection(params)
     channel = connection.channel()
@@ -78,5 +78,6 @@ def start_cloud_consumer():
 
 
 def start_notifications_consumer():
+    # Run both local and cloud consumers in separate threads 
     threading.Thread(target=start_local_consumer).start()
     threading.Thread(target=start_cloud_consumer).start()

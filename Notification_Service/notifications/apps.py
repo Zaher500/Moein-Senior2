@@ -14,8 +14,8 @@ class NotificationsConfig(AppConfig):
         from .notification_consumer import start_notifications_consumer
         from .rabbitmq_consumer import start_consuming
 
-        
+        #  Notifications
         threading.Thread(target=start_notifications_consumer, daemon=True).start()
 
-        
+        #  OTP Emails
         threading.Thread(target=start_consuming, daemon=True).start()

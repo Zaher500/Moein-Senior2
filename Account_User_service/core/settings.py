@@ -11,8 +11,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SERVICES = {
     'gateway': 'https://marielle-subchondral-rex.ngrok-free.dev',
-    'account': 'http://localhost:8000',   
-    'course': 'http://localhost:8001',    
+    'account': 'http://127.0.0.1:8000',   # Account service   https://asteroidal-rikki-craniologically.ngrok-free.dev
+    'course': 'https://lissom-plainly-cathi.ngrok-free.dev',    # Course service
 }
 
 GATEWAY_SECRET = 'AwZKQwAg5nowgvSvSdb4dfPZSC6eM9F_7XH6gokrJEtB93jXEsTJTmYKQGR7xUNn0ns'
@@ -119,7 +119,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'Account_User_service',
         'USER': 'root',
-        'PASSWORD': 'Zaher.0968271107',
+        'PASSWORD': '123456789',
         'HOST': 'localhost',
         'PORT': '3306',
     }
