@@ -1,1 +1,301 @@
-# Moein-Senior2
+# Moein - AI Student Assistance System
+
+Moein is an AI-powered student assistance system designed to help university students organize, understand, and review their academic materials more efficiently.
+
+The system combines course and lecture management with AI-based services such as lecture summarization, quiz generation, speech-to-text transcription, notifications, and a Retrieval-Augmented Generation (RAG) chatbot.
+
+This repository contains the backend implementation of **Moein - Graduation Project 2**.
+
+---
+
+## Team Members
+
+* MHD Zaher Krayem
+* MHD Yahia Abo Samra
+* MHD Awab Kheir
+* Othman Darkal
+
+---
+
+## Project Overview
+
+Moein provides students with a centralized platform for managing courses and lecture materials.
+
+Students can upload lecture content, generate summaries, create quizzes, transcribe recorded lectures, and ask questions through an AI chatbot based on their academic materials.
+
+The backend is organized using a **microservices architecture**, where each service is responsible for a specific part of the system.
+
+---
+
+## Main Features
+
+* User registration and authentication
+* User account management
+* Course management
+* Lecture management
+* Lecture file uploads
+* AI-based lecture summarization
+* Automatic quiz generation
+* Quiz answer processing
+* Speech-to-text transcription
+* Retrieval-Augmented Generation (RAG) chatbot
+* Semantic retrieval from lecture content
+* OTP notifications
+* AI task completion notifications
+* API Gateway for routing requests between services
+* Asynchronous task processing using RabbitMQ
+
+---
+
+# Backend Services
+
+## API Gateway
+
+The API Gateway acts as the main entry point between the frontend and the backend services.
+
+It is responsible for routing incoming requests to the appropriate microservice.
+
+---
+
+## Account & User Service
+
+Handles user-related functionality, including:
+
+* User registration
+* Login
+* Authentication
+* JWT-based authorization
+* User account management
+* OTP verification
+
+Technologies used:
+
+* Django
+* Django REST Framework
+* MySQL
+* JWT
+
+---
+
+## Course & Lecture Service
+
+Manages the academic structure of the platform.
+
+Its responsibilities include:
+
+* Course creation and management
+* Lecture creation and management
+* Lecture file uploads
+* Lecture metadata
+* Communication with AI-related services
+
+Technologies used:
+
+* Django
+* Django REST Framework
+* MySQL
+* REST APIs
+
+---
+
+## Summarization Service
+
+The Summarization Service processes lecture content and generates AI-based summaries.
+
+It receives lecture content from the system, sends the content for AI processing, and returns the generated summary to be associated with the lecture.
+
+Main responsibilities:
+
+* Receiving lecture content
+* Processing lecture text
+* Generating summaries
+* Returning summary results to the system
+
+---
+
+## Quiz Generator Service
+
+The Quiz Generator Service generates quizzes from lecture content.
+
+Main responsibilities:
+
+* Receiving lecture content
+* Generating quiz questions
+* Storing generated quizzes
+* Processing student answers
+* Running quiz generation tasks asynchronously
+
+Technologies used:
+
+* Django
+* Django REST Framework
+* MongoDB
+* RabbitMQ
+* Background worker
+
+---
+
+## AI Chatbot Service
+
+The Chatbot Service provides an academic assistant that answers student questions using uploaded lecture content.
+
+The chatbot uses **Retrieval-Augmented Generation (RAG)** instead of relying only on the general knowledge of the language model.
+
+The service:
+
+1. Receives a student question.
+2. Searches the indexed lecture content.
+3. Retrieves the most relevant lecture chunks.
+4. Sends the retrieved context with the question to the LLM.
+5. Generates an answer based on the retrieved academic content.
+
+Technologies used:
+
+* Django
+* Django REST Framework
+* Groq API
+* BGE-M3
+* Milvus
+* Retrieval-Augmented Generation (RAG)
+
+### BGE-M3
+
+BGE-M3 is used to generate embeddings for lecture chunks and student queries.
+
+These embeddings allow the system to perform semantic retrieval based on meaning rather than exact keyword matching.
+
+### Milvus
+
+Milvus is used as the vector database for storing and searching lecture embeddings.
+
+It enables the chatbot to retrieve the most relevant lecture chunks for a student's question.
+
+### Groq
+
+Groq is used by the chatbot service to access the Large Language Model used for generating answers after the relevant lecture context has been retrieved.
+
+---
+
+## Speech-to-Text Service
+
+The Speech-to-Text service converts recorded lecture audio into text.
+
+The generated transcript can then be used as lecture content within the Moein system.
+
+Technologies used:
+
+* Whisper
+* Faster Whisper
+
+Main responsibilities:
+
+* Receiving lecture audio
+* Processing audio files
+* Generating lecture transcripts
+* Returning transcription results to the system
+
+---
+
+## Notification Service
+
+The Notification Service handles notifications generated by different backend services.
+
+It is used for:
+
+* OTP notifications
+* AI task completion notifications
+* Summarization completion notifications
+* Quiz generation completion notifications
+* Transcription completion notifications
+
+---
+
+# AI Technologies
+
+Moein uses several AI technologies for different tasks.
+
+## Retrieval-Augmented Generation
+
+RAG is used by the chatbot to generate answers based on the student's lecture materials.
+
+The system retrieves relevant lecture content before sending the question to the language model.
+
+This allows the chatbot to provide answers that are grounded in the available course content.
+
+## Embeddings
+
+Moein uses **BGE-M3** to generate vector representations of lecture content and student questions.
+
+These vectors are stored and searched using Milvus.
+
+## Large Language Model
+
+The Chatbot Service uses **Groq API** to access the language model responsible for generating responses.
+
+## Speech Recognition
+
+Lecture transcription is handled using:
+
+* Whisper
+* Faster Whisper
+
+---
+
+# Technologies Used
+
+## Backend
+
+* Python
+* Django
+* Django REST Framework
+* REST APIs
+* JWT Authentication
+
+## Databases
+
+* MySQL
+* MongoDB
+* Milvus Vector Database
+
+## AI
+
+* Retrieval-Augmented Generation (RAG)
+* BGE-M3 Embeddings
+* Groq API
+* Whisper
+* Faster Whisper
+
+## Messaging & Background Processing
+
+* RabbitMQ
+* Background Workers
+
+## Development & Infrastructure
+
+* Git
+* GitHub
+* Docker
+* Ngrok
+
+---
+
+## Purpose of the Repository
+
+This repository contains the backend implementation of **Moein Graduation Project 2**.
+
+It includes:
+
+* API Gateway
+* Account and authentication service
+* Course and lecture management
+* Lecture summarization
+* Quiz generation
+* Speech-to-text transcription
+* RAG chatbot
+* Vector retrieval
+* Notifications
+* Database integrations
+* Inter-service communication
+* Asynchronous task processing
+
+The repository provides the core backend infrastructure required to connect the Moein frontend with its backend services, databases, AI services, and asynchronous processing components.
