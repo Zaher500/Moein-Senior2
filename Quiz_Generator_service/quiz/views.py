@@ -14,6 +14,7 @@ from .services.course_client import fetch_lecture_file
 from .services.quiz_generator import generate_quiz
 from .services.mongo_store import store_llm_response
 from .services.difficulty_engine import get_next_difficulty
+from .services.progress_service import get_student_progress
 from .rabbitmq_client import publish_quiz_job
 
 
@@ -844,4 +845,33 @@ def quiz_submit_view(request, quiz_id):
             "results": results
         },
         status_code=201
+    )
+
+
+@api_view(['GET'])
+def learning_progress_view(request):
+    student_id = request.headers.get('X-Student-ID')
+
+    if not student_id:
+        return build_response(
+            False,
+            'X-Student-ID header is missing',
+            status_code=400
+        )
+
+    student_id_error = _validate_uuid(
+        student_id,
+        'X-Student-ID'
+    )
+
+    if student_id_error:
+        return student_id_error
+
+    progress = get_student_progress(student_id)
+
+    return build_response(
+        True,
+        "Learning progress fetched successfully",
+        progress,
+        status_code=200
     )
