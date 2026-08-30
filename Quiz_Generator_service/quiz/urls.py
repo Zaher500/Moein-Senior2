@@ -11,6 +11,21 @@ urlpatterns = [
     path('progress/', views.learning_progress_view, name='learning_progress'),
     path('lecture/<uuid:lecture_id>/', views.quiz_by_lecture_view, name='quiz_by_lecture'),
     path('<uuid:quiz_id>/status/', views.quiz_status_view, name='quiz_status'),
+    path(
+        '<uuid:quiz_id>/attempts/start/',
+        views.quiz_attempt_start_view,
+        name='quiz_attempt_start'
+    ),
+    path(
+        'attempts/<uuid:attempt_id>/answer/',
+        views.quiz_attempt_answer_view,
+        name='quiz_attempt_answer'
+    ),
+    path(
+        'attempts/in-progress/',
+        views.in_progress_attempts_view,
+        name='quiz_in_progress_attempts'
+    ),
     path('<uuid:quiz_id>/submit/', views.quiz_submit_view, name='quiz_submit'),
     path('<uuid:quiz_id>/', views.quiz_detail_view, name='quiz_detail'),
 ]

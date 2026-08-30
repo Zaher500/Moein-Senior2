@@ -6,7 +6,8 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-
+from django.utils import timezone
+from django.db.models import Count
 from .models import Quiz, Question, QuizAttempt, Answer
 from .serializers import QuizSerializer
 from .services.file_extractor import extract_text_from_file
@@ -22,7 +23,7 @@ def build_response(success, message, data=None, status_code=200):
     return Response({
         "success": success,
         "message": message,
-        "data": data or {}
+        "data": data if data is not None else {}
     }, status=status_code)
 
 
@@ -50,6 +51,44 @@ def _validate_uuid(value, field_name):
             f'{field_name} must be a valid UUID',
             status_code=400
         )
+
+
+def _build_attempt_progress_data(attempt):
+    saved_answers = (
+        attempt.answers
+        .select_related('question')
+        .order_by('question__order')
+    )
+
+    answered_questions = saved_answers.count()
+    total_questions = attempt.total
+
+    progress_percentage = (
+        (answered_questions / total_questions) * 100
+        if total_questions > 0
+        else 0.0
+    )
+
+    return {
+        'attempt_id': str(attempt.attempt_id),
+        'quiz_id': str(attempt.quiz_id),
+        'status': attempt.status,
+        'answered_questions': answered_questions,
+        'total_questions': total_questions,
+        'progress_percentage': round(
+            progress_percentage,
+            2
+        ),
+        'started_at': attempt.started_at,
+        'updated_at': attempt.updated_at,
+        'answers': [
+            {
+                'question_id': str(answer.question_id),
+                'selected_answer': answer.selected_answer,
+            }
+            for answer in saved_answers
+        ],
+    }
 
 
 def _validate_file(file_obj):
@@ -687,6 +726,312 @@ def quiz_by_lecture_view(request, lecture_id):
 
 
 @api_view(['POST'])
+def quiz_attempt_start_view(request, quiz_id):
+    error = _validate_uuid(
+        quiz_id,
+        'quiz_id'
+    )
+
+    if error:
+        return error
+
+    student_id = request.headers.get(
+        'X-Student-ID'
+    )
+
+    if not student_id:
+        return build_response(
+            False,
+            'X-Student-ID header is missing',
+            status_code=400
+        )
+
+    student_id_error = _validate_uuid(
+        student_id,
+        'X-Student-ID'
+    )
+
+    if student_id_error:
+        return student_id_error
+
+    with transaction.atomic():
+        quiz = (
+            Quiz.objects
+            .select_for_update()
+            .filter(quiz_id=quiz_id)
+            .first()
+        )
+
+        if not quiz:
+            return build_response(
+                False,
+                'Quiz not found',
+                status_code=404
+            )
+
+        if quiz.status != 'READY':
+            return build_response(
+                False,
+                'Quiz is not ready to be attempted',
+                status_code=400
+            )
+
+        total_questions = quiz.questions.count()
+
+        if total_questions == 0:
+            return build_response(
+                False,
+                'This quiz has no questions',
+                status_code=400
+            )
+
+        attempt = (
+            QuizAttempt.objects
+            .filter(
+                quiz=quiz,
+                student_id=student_id,
+                status='IN_PROGRESS',
+            )
+            .order_by('-started_at')
+            .first()
+        )
+
+        created = False
+
+        if not attempt:
+            attempt = QuizAttempt.objects.create(
+                quiz=quiz,
+                student_id=student_id,
+                status='IN_PROGRESS',
+                score=0.0,
+                total=total_questions,
+            )
+
+            created = True
+
+    return build_response(
+        True,
+        (
+            'Quiz attempt started successfully'
+            if created
+            else 'Quiz attempt resumed successfully'
+        ),
+        _build_attempt_progress_data(attempt),
+        status_code=201 if created else 200
+    )
+
+
+@api_view(['PUT'])
+def quiz_attempt_answer_view(request, attempt_id):
+    student_id = request.headers.get(
+        'X-Student-ID'
+    )
+
+    if not student_id:
+        return build_response(
+            False,
+            'X-Student-ID header is missing',
+            status_code=400
+        )
+
+    student_id_error = _validate_uuid(
+        student_id,
+        'X-Student-ID'
+    )
+
+    if student_id_error:
+        return student_id_error
+
+    question_id = request.data.get(
+        'question_id'
+    )
+
+    if not question_id:
+        return build_response(
+            False,
+            'question_id is required',
+            status_code=400
+        )
+
+    question_id_error = _validate_uuid(
+        question_id,
+        'question_id'
+    )
+
+    if question_id_error:
+        return question_id_error
+
+    if 'selected_answer' not in request.data:
+        return build_response(
+            False,
+            'selected_answer is required',
+            status_code=400
+        )
+
+    selected_answer = str(
+        request.data.get(
+            'selected_answer',
+            ''
+        )
+    ).strip()
+
+    if not selected_answer:
+        return build_response(
+            False,
+            'selected_answer cannot be empty',
+            status_code=400
+        )
+
+    with transaction.atomic():
+        attempt = (
+            QuizAttempt.objects
+            .select_for_update()
+            .filter(
+                attempt_id=attempt_id,
+                student_id=student_id,
+            )
+            .select_related('quiz')
+            .first()
+        )
+
+        if not attempt:
+            return build_response(
+                False,
+                'Quiz attempt not found',
+                status_code=404
+            )
+
+        if attempt.status != 'IN_PROGRESS':
+            return build_response(
+                False,
+                'Only in-progress attempts can be updated',
+                status_code=400
+            )
+
+        question = (
+            Question.objects
+            .filter(
+                question_id=question_id,
+                quiz=attempt.quiz,
+            )
+            .first()
+        )
+
+        if not question:
+            return build_response(
+                False,
+                'Question does not belong to this quiz attempt',
+                status_code=400
+            )
+
+        Answer.objects.update_or_create(
+            attempt=attempt,
+            question=question,
+            defaults={
+                'selected_answer': selected_answer,
+                'is_correct': None,
+            }
+        )
+
+        # Touch updated_at so resume shows the latest activity.
+        attempt.save(
+            update_fields=['updated_at']
+        )
+
+    return build_response(
+        True,
+        'Answer saved successfully',
+        _build_attempt_progress_data(attempt),
+        status_code=200
+    )
+
+
+@api_view(['GET'])
+def in_progress_attempts_view(request):
+    student_id = request.headers.get(
+        'X-Student-ID'
+    )
+
+    if not student_id:
+        return build_response(
+            False,
+            'X-Student-ID header is missing',
+            status_code=400
+        )
+
+    student_id_error = _validate_uuid(
+        student_id,
+        'X-Student-ID'
+    )
+
+    if student_id_error:
+        return student_id_error
+
+    attempts = (
+        QuizAttempt.objects
+        .filter(
+            student_id=student_id,
+            status='IN_PROGRESS',
+        )
+        .select_related('quiz')
+        .annotate(
+            answered_questions_count=Count('answers')
+        )
+        .order_by('-updated_at')
+    )
+
+    data = []
+
+    for attempt in attempts:
+        answered_questions = (
+            attempt.answered_questions_count
+        )
+        total_questions = attempt.total
+
+        progress_percentage = (
+            (answered_questions / total_questions) * 100
+            if total_questions > 0
+            else 0.0
+        )
+
+        data.append({
+            'attempt_id': str(
+                attempt.attempt_id
+            ),
+            'quiz_id': str(
+                attempt.quiz_id
+            ),
+            'title': attempt.quiz.title,
+            'lecture_id': (
+                str(attempt.quiz.lecture_id)
+                if attempt.quiz.lecture_id
+                else None
+            ),
+            'course_id': (
+                str(attempt.quiz.course_id)
+                if attempt.quiz.course_id
+                else None
+            ),
+            'status': attempt.status,
+            'answered_questions': answered_questions,
+            'total_questions': total_questions,
+            'progress_percentage': round(
+                progress_percentage,
+                2
+            ),
+            'started_at': attempt.started_at,
+            'updated_at': attempt.updated_at,
+        })
+
+    return build_response(
+        True,
+        'In-progress quiz attempts fetched successfully',
+        data,
+        status_code=200
+    )
+
+
+@api_view(['POST'])
 def quiz_submit_view(request, quiz_id):
     error = _validate_uuid(
         quiz_id,
@@ -712,6 +1057,14 @@ def quiz_submit_view(request, quiz_id):
             status_code=400
         )
 
+    student_id_error = _validate_uuid(
+        student_id,
+        'X-Student-ID'
+    )
+
+    if student_id_error:
+        return student_id_error
+
     answers_data = request.data.get(
         'answers',
         []
@@ -724,13 +1077,6 @@ def quiz_submit_view(request, quiz_id):
         return build_response(
             False,
             'answers must be a JSON array',
-            status_code=400
-        )
-
-    if not answers_data:
-        return build_response(
-            False,
-            'answers list cannot be empty',
             status_code=400
         )
 
@@ -763,17 +1109,37 @@ def quiz_submit_view(request, quiz_id):
             status_code=400
         )
 
-    score = 0
-    results = []
-
     with transaction.atomic():
-        attempt = QuizAttempt.objects.create(
-            quiz=quiz,
-            student_id=student_id,
-            score=0.0,
-            total=total_questions
+        attempt = (
+            QuizAttempt.objects
+            .select_for_update()
+            .filter(
+                quiz=quiz,
+                student_id=student_id,
+                status='IN_PROGRESS',
+            )
+            .order_by('-started_at')
+            .first()
         )
 
+        if not attempt:
+            if not answers_data:
+                return build_response(
+                    False,
+                    'No in-progress attempt or answers were found',
+                    status_code=400
+                )
+
+            attempt = QuizAttempt.objects.create(
+                quiz=quiz,
+                student_id=student_id,
+                status='IN_PROGRESS',
+                score=0.0,
+                total=total_questions,
+            )
+
+        # Keep backward compatibility:
+        # answers sent with submit are saved/updated first.
         for ans_data in answers_data:
             q_id = str(
                 ans_data.get('question_id')
@@ -793,6 +1159,38 @@ def quiz_submit_view(request, quiz_id):
             if not question:
                 continue
 
+            Answer.objects.update_or_create(
+                attempt=attempt,
+                question=question,
+                defaults={
+                    'selected_answer': selected_answer,
+                    'is_correct': None,
+                }
+            )
+
+        saved_answers = (
+            attempt.answers
+            .select_related('question')
+            .order_by('question__order')
+        )
+
+        if not saved_answers.exists():
+            return build_response(
+                False,
+                'No answers were found for this attempt',
+                status_code=400
+            )
+
+        score = 0
+        results = []
+
+        for answer in saved_answers:
+            question = answer.question
+
+            selected_answer = str(
+                answer.selected_answer
+            ).strip()
+
             is_correct = (
                 selected_answer.lower()
                 ==
@@ -801,25 +1199,23 @@ def quiz_submit_view(request, quiz_id):
                 ).strip().lower()
             )
 
+            answer.is_correct = is_correct
+            answer.save(
+                update_fields=['is_correct']
+            )
+
             if is_correct:
                 score += 1
 
-            Answer.objects.create(
-                attempt=attempt,
-                question=question,
-                selected_answer=selected_answer,
-                is_correct=is_correct
-            )
-
             results.append({
-                "question_id": str(
+                'question_id': str(
                     question.question_id
                 ),
-                "question_text": question.question_text,
-                "selected_answer": selected_answer,
-                "correct_answer": question.correct_answer,
-                "is_correct": is_correct,
-                "explanation": question.explanation
+                'question_text': question.question_text,
+                'selected_answer': selected_answer,
+                'correct_answer': question.correct_answer,
+                'is_correct': is_correct,
+                'explanation': question.explanation,
             })
 
         percentage = (
@@ -827,22 +1223,34 @@ def quiz_submit_view(request, quiz_id):
         ) * 100.0
 
         attempt.score = score
-        attempt.save()
+        attempt.total = total_questions
+        attempt.status = 'SUBMITTED'
+        attempt.submitted_at = timezone.now()
+
+        attempt.save(
+            update_fields=[
+                'score',
+                'total',
+                'status',
+                'submitted_at',
+                'updated_at',
+            ]
+        )
 
     return build_response(
         True,
-        "Quiz submitted successfully",
+        'Quiz submitted successfully',
         {
-            "attempt_id": str(
+            'attempt_id': str(
                 attempt.attempt_id
             ),
-            "score": score,
-            "total": total_questions,
-            "percentage": round(
+            'score': score,
+            'total': total_questions,
+            'percentage': round(
                 percentage,
                 2
             ),
-            "results": results
+            'results': results,
         },
         status_code=201
     )

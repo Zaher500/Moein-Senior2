@@ -4,7 +4,11 @@ from quiz.models import QuizAttempt
 def get_student_progress(student_id):
     attempts = (
         QuizAttempt.objects
-        .filter(student_id=student_id, total__gt=0)
+        .filter(
+            student_id=student_id,
+            status='SUBMITTED',
+            total__gt=0,
+        )
         .select_related("quiz")
         .order_by("submitted_at")
     )

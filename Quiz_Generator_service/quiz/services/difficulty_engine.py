@@ -20,7 +20,10 @@ def get_next_difficulty(student_id, lecture_id=None, course_id=None):
     3. If there is no previous attempt, start at Medium (3).
     """
 
-    attempts = QuizAttempt.objects.filter(student_id=student_id)
+    attempts = QuizAttempt.objects.filter(
+        student_id=student_id,
+        status='SUBMITTED',
+    )
 
     if lecture_id:
         attempts = attempts.filter(quiz__lecture_id=lecture_id)
