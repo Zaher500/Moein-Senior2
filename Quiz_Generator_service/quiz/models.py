@@ -52,22 +52,71 @@ class Question(models.Model):
         return f"Question {self.order} for Quiz {self.quiz_id}"
 
 class QuizAttempt(models.Model):
-    attempt_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name='attempts')
+    STATUS_CHOICES = [
+        ('IN_PROGRESS', 'IN_PROGRESS'),
+        ('SUBMITTED', 'SUBMITTED'),
+    ]
+
+    attempt_id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    quiz = models.ForeignKey(
+        Quiz,
+        on_delete=models.CASCADE,
+        related_name='attempts'
+    )
     student_id = models.UUIDField()
-    score = models.FloatField()
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='IN_PROGRESS'
+    )
+
+    score = models.FloatField(default=0.0)
     total = models.IntegerField()
-    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    submitted_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
 
     def __str__(self):
         return f"Attempt by {self.student_id} on Quiz {self.quiz_id}"
 
 class Answer(models.Model):
-    answer_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    attempt = models.ForeignKey(QuizAttempt, on_delete=models.CASCADE, related_name='answers')
-    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    answer_id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    attempt = models.ForeignKey(
+        QuizAttempt,
+        on_delete=models.CASCADE,
+        related_name='answers'
+    )
+    question = models.ForeignKey(
+        Question,
+        on_delete=models.CASCADE
+    )
     selected_answer = models.CharField(max_length=255)
-    is_correct = models.BooleanField()
+    is_correct = models.BooleanField(
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['attempt', 'question'],
+                name='unique_answer_per_attempt_question'
+            )
+        ]
 
     def __str__(self):
         return f"Answer {self.answer_id} for Attempt {self.attempt_id}"
