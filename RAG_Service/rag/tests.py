@@ -398,3 +398,91 @@ class InternalRAGAPITests(SimpleTestCase):
             response.status_code,
             status.HTTP_200_OK,
         )
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    def test_ingest_rejects_missing_internal_key(self):
+        response = self.client.post(
+            reverse("rag-ingest"),
+            {
+                "lecture_text": "Lecture content",
+                "lecture_id": "lecture-1",
+                "course_id": "course-1",
+                "student_id": "student-1",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    def test_ingest_rejects_invalid_internal_key(self):
+        response = self.client.post(
+            reverse("rag-ingest"),
+            {
+                "lecture_text": "Lecture content",
+                "lecture_id": "lecture-1",
+                "course_id": "course-1",
+                "student_id": "student-1",
+            },
+            format="json",
+            HTTP_X_INTERNAL_SERVICE_KEY="wrong-key",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    def test_retrieve_rejects_missing_student_id(self):
+        response = self.client.post(
+            reverse("rag-retrieve"),
+            {
+                "query": "What is RAG?",
+            },
+            format="json",
+            **self.headers,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    def test_retrieve_rejects_invalid_top_k(self):
+        response = self.client.post(
+            reverse("rag-retrieve"),
+            {
+                "student_id": "student-1",
+                "query": "What is RAG?",
+                "top_k": 0,
+            },
+            format="json",
+            **self.headers,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    def test_ingest_rejects_incomplete_payload(self):
+        response = self.client.post(
+            reverse("rag-ingest"),
+            {
+                "lecture_text": "Lecture content",
+                "lecture_id": "lecture-1",
+            },
+            format="json",
+            **self.headers,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
