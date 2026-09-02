@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -269,3 +269,132 @@ class VectorStoreServiceTests(SimpleTestCase):
         mock_ensure_collection.assert_called_once()
         mock_ensure_index.assert_called_once_with(mock_collection)
         mock_collection.load.assert_called_once()
+
+
+class InternalRAGAPITests(SimpleTestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.valid_key = "test-internal-key"
+        self.headers = {
+            "HTTP_X_INTERNAL_SERVICE_KEY": self.valid_key,
+        }
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    def test_retrieve_rejects_missing_internal_key(self):
+        response = self.client.post(
+            reverse("rag-retrieve"),
+            {
+                "student_id": "student-1",
+                "query": "What is RAG?",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    def test_retrieve_rejects_invalid_internal_key(self):
+        response = self.client.post(
+            reverse("rag-retrieve"),
+            {
+                "student_id": "student-1",
+                "query": "What is RAG?",
+            },
+            format="json",
+            HTTP_X_INTERNAL_SERVICE_KEY="wrong-key",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    @patch("rag.views.RAGService.retrieve_context")
+    def test_retrieve_accepts_valid_internal_key(
+        self,
+        mock_retrieve_context,
+    ):
+        mock_retrieve_context.return_value = {
+            "chunks": [],
+            "context_text": "",
+            "sources": [],
+        }
+
+        response = self.client.post(
+            reverse("rag-retrieve"),
+            {
+                "student_id": "student-1",
+                "query": "What is RAG?",
+                "course_id": "course-1",
+                "lecture_id": "lecture-1",
+                "top_k": 5,
+            },
+            format="json",
+            **self.headers,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        mock_retrieve_context.assert_called_once_with(
+            student_id="student-1",
+            query="What is RAG?",
+            course_id="course-1",
+            lecture_id="lecture-1",
+            top_k=5,
+        )
+
+    @override_settings(RAG_INTERNAL_API_KEY="test-internal-key")
+    @patch("rag.views.LectureIngestionService.ingest_lecture_text")
+    def test_ingest_accepts_valid_internal_key(
+        self,
+        mock_ingest_lecture_text,
+    ):
+        mock_ingest_lecture_text.return_value = {
+            "lecture_id": "lecture-1",
+            "course_id": "course-1",
+            "student_id": "student-1",
+            "source_type": "lecture",
+            "chunks_inserted": 1,
+            "chunk_ids": ["chunk-1"],
+        }
+
+        response = self.client.post(
+            reverse("rag-ingest"),
+            {
+                "lecture_text": "Lecture content",
+                "lecture_id": "lecture-1",
+                "course_id": "course-1",
+                "student_id": "student-1",
+                "source_type": "lecture",
+            },
+            format="json",
+            **self.headers,
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        mock_ingest_lecture_text.assert_called_once_with(
+            lecture_text="Lecture content",
+            lecture_id="lecture-1",
+            course_id="course-1",
+            student_id="student-1",
+            source_type="lecture",
+        )
+
+    def test_health_remains_public(self):
+        response = self.client.get(reverse("rag-health"))
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )

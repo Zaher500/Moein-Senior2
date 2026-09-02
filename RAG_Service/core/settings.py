@@ -69,6 +69,9 @@ INSTALLED_APPS = [
 ]
 
 
+RAG_INTERNAL_API_KEY = os.getenv("RAG_INTERNAL_API_KEY")
+
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",

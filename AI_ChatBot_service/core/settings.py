@@ -22,6 +22,18 @@ DEBUG = True
 ALLOWED_HOSTS = []
 
 
+RAG_SERVICE_URL = os.getenv(
+    "RAG_SERVICE_URL",
+    "http://localhost:8005",
+)
+
+RAG_INTERNAL_API_KEY = os.getenv("RAG_INTERNAL_API_KEY")
+
+RAG_RETRIEVAL_TIMEOUT = int(
+    os.getenv("RAG_RETRIEVAL_TIMEOUT", "15")
+)
+
+
 # Application definition
 
 INSTALLED_APPS = [

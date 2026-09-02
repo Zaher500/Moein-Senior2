@@ -7,10 +7,8 @@ from .serializers import (
     ChatMessageSerializer,
     CreateChatSessionSerializer,
     SendMessageSerializer,
-    IngestLectureSerializer,
 )
 from ChatBot.utils.user_headers import get_user_from_headers
-from .services.lecture_ingestion_service import LectureIngestionService
 
 from .selectors.chat_session_selector import (
     get_student_sessions,
@@ -118,44 +116,3 @@ def send_message(request, session_id):
         "user_message": ChatMessageSerializer(result["user_message"]).data,
         "assistant_message": ChatMessageSerializer(result["assistant_message"]).data,
     }, status=status.HTTP_201_CREATED)
-
-
-@api_view(["POST"])
-def ingest_lecture(request):
-    print("ChatBot ingestion request received")
-    user, student_id = extract_student_id(request)
-
-    if not student_id:
-        return Response(
-            {"error": "Student ID not found in headers"},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    serializer = IngestLectureSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-
-    try:
-        result = LectureIngestionService.ingest_lecture_text(
-            lecture_text=serializer.validated_data["lecture_text"],
-            lecture_id=serializer.validated_data["lecture_id"],
-            course_id=serializer.validated_data["course_id"],
-            student_id=student_id,
-            source_type=serializer.validated_data.get("source_type", "lecture"),
-        )
-
-        return Response(result, status=status.HTTP_201_CREATED)
-
-    except ValueError as e:
-        return Response(
-            {"error": str(e)},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    except Exception as e:
-        return Response(
-            {
-                "error": "Failed to ingest lecture text.",
-                "details": str(e),
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
