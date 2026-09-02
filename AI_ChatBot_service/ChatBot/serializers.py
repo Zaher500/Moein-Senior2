@@ -36,10 +36,3 @@ class CreateChatSessionSerializer(serializers.ModelSerializer):
 
 class SendMessageSerializer(serializers.Serializer):
     content = serializers.CharField()
-
-
-class IngestLectureSerializer(serializers.Serializer):
-    lecture_text = serializers.CharField()
-    lecture_id = serializers.CharField()
-    course_id = serializers.CharField()
-    source_type = serializers.CharField(required=False, default="lecture")

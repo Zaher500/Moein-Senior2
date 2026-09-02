@@ -1,7 +1,7 @@
 from ChatBot.selectors.chat_session_selector import get_student_session_or_404
 from ChatBot.selectors.chat_message_selector import get_llm_ready_history
 from ChatBot.services.chat_message_service import ChatMessageService
-from ChatBot.services.rag_service import RAGService
+from ChatBot.services.rag_client import retrieve_context
 from ChatBot.services.prompt_builder import PromptBuilder
 from ChatBot.services.llm_service import LLMService
 
@@ -15,8 +15,9 @@ class ChatOrchestrator:
             session=session, content=message_text
         )
 
-        rag_result = RAGService.retrieve_context(
-            student_id=student_id, query=message_text, session=session
+        rag_result = retrieve_context(
+            student_id=student_id,
+            query=message_text,
         )
         print("RAG chunks count:", len(rag_result["chunks"]))
         print("RAG context preview:", rag_result["context_text"][:500])

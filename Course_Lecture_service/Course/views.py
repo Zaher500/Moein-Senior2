@@ -18,7 +18,7 @@ from rest_framework.decorators import api_view, permission_classes, parser_class
 from .utils.text_extractor import extract_text_from_file
 from .services.summarization_client import get_summary
 from .services.summarization_client import send_for_summarization, is_summary_ready
-from .services.chatbot_client import send_for_chatbot_ingestion
+from .services.rag_client import send_for_rag_ingestion
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -312,7 +312,7 @@ def upload_lecture(request, course_id):
             summary_status='PROCESSING',
         )
 
-         # 10. Extract text
+        # 10. Extract text
         try:
             extracted_text = extract_text_from_file(file_path)
         except Exception as e:
@@ -326,10 +326,10 @@ def upload_lecture(request, course_id):
                 {'error': f'Text extraction failed: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-                # 11. Fire-and-forget: send extracted text to ChatBot and Summarization services
-        def send_to_chatbot():
+        # 11. Fire-and-forget: send extracted text to RAG and Summarization services
+        def send_to_rag():
             try:
-                send_for_chatbot_ingestion(
+                send_for_rag_ingestion(
                     lecture_id=lecture.lecture_id,
                     course_id=course.course_id,
                     student_id=student_id,
@@ -337,7 +337,7 @@ def upload_lecture(request, course_id):
                     source_type="lecture",
                 )
             except Exception as e:
-                print(f"ChatBot ingestion failed: {e}")
+                print(f"RAG ingestion failed: {e}")
 
         # def send_to_summarizer():
         #     try:
@@ -361,10 +361,13 @@ def upload_lecture(request, course_id):
          except Exception as e:
             print(f"Summarization request failed: {e}")
 
-        chatbot_thread = threading.Thread(target=send_to_chatbot, daemon=True)
+        rag_thread = threading.Thread(
+            target=send_to_rag,
+            daemon=True,
+        )
         summarizer_thread = threading.Thread(target=send_to_summarizer, daemon=True)
 
-        chatbot_thread.start()
+        rag_thread.start()
         summarizer_thread.start()
         
         # 13. Return response
