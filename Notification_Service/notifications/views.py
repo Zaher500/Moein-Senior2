@@ -1,6 +1,3 @@
-import json
-import pika
-
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -83,28 +80,3 @@ class MarkNotificationReadAPIView(APIView):
                 break
 
         return Response({"message": "Notification marked as read"})
-    
-
-
-#AYO  مشان اختبار بوستمان بس
-
-class TestPublishNotificationAPIView(APIView):
-    def post(self, request):
-        connection = pika.BlockingConnection(
-            pika.ConnectionParameters(host='localhost')
-        )
-        channel = connection.channel()
-
-        channel.queue_declare(queue='notifications_queue')
-
-        data = request.data
-
-        channel.basic_publish(
-            exchange='',
-            routing_key='notifications_queue',
-            body=json.dumps(data)
-        )
-
-        connection.close()
-
-        return Response({"message": "Notification sent to queue"})
