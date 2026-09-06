@@ -71,6 +71,8 @@ class PendingRegistration(models.Model):
     otp_hash = models.CharField(max_length=255)
     otp_expires_at = models.DateTimeField()
 
+    otp_sent_at = models.DateTimeField(default=timezone.now)
+
     otp_attempts = models.IntegerField(default=0)  #A
 
     created_at = models.DateTimeField(auto_now_add=True)
