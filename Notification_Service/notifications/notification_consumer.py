@@ -1,8 +1,9 @@
-import pika
 import json
-import uuid
-import threading
 import os
+import threading
+import uuid
+
+import pika
 
 from .in_memory_store import notifications_store
 
@@ -24,53 +25,56 @@ def callback(ch, method, properties, body):
             "id": str(uuid.uuid4()),
             "message": message,
             "type": type_,
-            "is_read": False
+            "is_read": False,
         })
 
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as e:
-        print(" Error:", str(e))
+        print("Notification processing error:", str(e))
+
+        ch.basic_nack(
+            delivery_tag=method.delivery_tag,
+            requeue=False,
+        )
 
 
-#Local RabbitMQ 
 def start_local_consumer():
     connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host='localhost')
+        pika.ConnectionParameters(host="localhost")
     )
     channel = connection.channel()
 
-    channel.queue_declare(queue='notifications_queue')
+    channel.queue_declare(queue="notifications_queue")
 
     channel.basic_consume(
-        queue='notifications_queue',
+        queue="notifications_queue",
         on_message_callback=callback,
-        auto_ack=False
+        auto_ack=False,
     )
 
     print("Local Notifications Consumer Running...")
     channel.start_consuming()
 
 
-# CloudAMQP
 def start_cloud_consumer():
     cloud_url = os.environ.get("CLOUDAMQP_URL")
 
     if not cloud_url:
         print("CLOUDAMQP_URL not set, skipping cloud consumer")
         return
-    # cloud_url format: amqps://username:password@host/vhost
-    params = pika.URLParameters(cloud_url)   
+
+    params = pika.URLParameters(cloud_url)
 
     connection = pika.BlockingConnection(params)
     channel = connection.channel()
 
-    channel.queue_declare(queue='notifications_queue')
+    channel.queue_declare(queue="notifications_queue")
 
     channel.basic_consume(
-        queue='notifications_queue',
+        queue="notifications_queue",
         on_message_callback=callback,
-        auto_ack=False
+        auto_ack=False,
     )
 
     print("Cloud Notifications Consumer Running...")
@@ -78,6 +82,12 @@ def start_cloud_consumer():
 
 
 def start_notifications_consumer():
-    # Run both local and cloud consumers in separate threads 
-    threading.Thread(target=start_local_consumer).start()
-    threading.Thread(target=start_cloud_consumer).start()
+    threading.Thread(
+        target=start_local_consumer,
+        daemon=True,
+    ).start()
+
+    threading.Thread(
+        target=start_cloud_consumer,
+        daemon=True,
+    ).start()
