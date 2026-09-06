@@ -10,6 +10,9 @@ from rest_framework import status
 from .serializers import SendOTPSerializer
 from .utils import send_email_otp  #AR
 
+from .auth_utils import get_user_from_headers
+from .in_memory_store import notifications_store
+
 class SendOTPEmailAPIView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -59,9 +62,6 @@ from .in_memory_store import notifications_store
 
 class UserNotificationsAPIView(APIView):
     def get(self, request):
-        from .auth_utils import get_user_from_headers
-        from .in_memory_store import notifications_store
-
         print("===== DEBUG NOTIFICATIONS =====")
 
         user = get_user_from_headers(request)
@@ -125,52 +125,3 @@ class TestPublishNotificationAPIView(APIView):
         connection.close()
 
         return Response({"message": "Notification sent to queue"})
-    
-
-
-#CloudAMQP
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from .in_memory_store import notifications_store
-from .auth_utils import get_user_from_headers
-
-
-@api_view(['GET'])
-def get_user_notifications(request):
-    print("===== DEBUG NOTIFICATIONS =====")
-    user = get_user_from_headers(request)
-
-    if not user:
-        print("No user from headers")
-        return Response({"error": "Unauthorized"}, status=401)
-    
-    user_id = user["user_id"]
-    print("User from JWT (header):", user_id)
-
-    print("All keys in notifications_store:", list(notifications_store.keys()))
-
-    user_notifications = notifications_store.get(user_id, [])
-    print("Notifications found:", user_notifications)
-
-    print("================================")
-    return Response(user_notifications)
-
-
-
-@api_view(['POST'])
-def mark_as_read(request):
-    user = get_user_from_headers(request)
-
-    if not user:
-        return Response({"error": "Unauthorized"}, status=401)
-
-    user_id = user["user_id"]
-    notification_id = request.data.get("notification_id")
-
-    user_notifications = notifications_store.get(user_id, [])
-
-    for notif in user_notifications:
-        if notif["id"] == notification_id:
-            notif["is_read"] = True
-
-    return Response({"message": "Marked as read"})
