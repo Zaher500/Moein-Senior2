@@ -1,11 +1,13 @@
 import json
+import time
+
 import pika
 
 from .utils import send_email_otp
 
 
 MAX_RETRIES = 3
-
+RECONNECT_DELAY_SECONDS = 5
 
 def callback(ch, method, properties, body):
     data = None
@@ -59,19 +61,42 @@ def callback(ch, method, properties, body):
 
 
 def start_consuming():
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host="localhost")
-    )
-    channel = connection.channel()
+    while True:
+        connection = None
 
-    channel.queue_declare(queue="send_otp_queue")
-    channel.queue_declare(queue="send_otp_failed_queue")
+        try:
+            connection = pika.BlockingConnection(
+                pika.ConnectionParameters(host="localhost")
+            )
+            channel = connection.channel()
 
-    channel.basic_consume(
-        queue="send_otp_queue",
-        on_message_callback=callback,
-        auto_ack=False,
-    )
+            channel.queue_declare(queue="send_otp_queue")
+            channel.queue_declare(queue="send_otp_failed_queue")
 
-    print("Waiting for messages...")
-    channel.start_consuming()
+            channel.basic_consume(
+                queue="send_otp_queue",
+                on_message_callback=callback,
+                auto_ack=False,
+            )
+
+            print("Waiting for OTP messages...")
+            channel.start_consuming()
+
+        except pika.exceptions.AMQPError as e:
+            print("OTP RabbitMQ connection lost:", str(e))
+            print(
+                f"Retrying OTP RabbitMQ in "
+                f"{RECONNECT_DELAY_SECONDS} seconds..."
+            )
+            time.sleep(RECONNECT_DELAY_SECONDS)
+
+        except Exception as e:
+            print("Unexpected OTP RabbitMQ error:", str(e))
+            time.sleep(RECONNECT_DELAY_SECONDS)
+
+        finally:
+            if connection and connection.is_open:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
