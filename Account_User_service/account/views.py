@@ -351,7 +351,8 @@ def register_initiate(request):
     # Hash password
     password_hash = make_password(password)
 
-    expires_at = timezone.now() + timedelta(minutes=10)
+    now = timezone.now()
+    expires_at = now + timedelta(minutes=10)
 
     # Save or update pending registration
     PendingRegistration.objects.update_or_create(
@@ -361,6 +362,8 @@ def register_initiate(request):
             "password": password_hash,
             "otp_hash": otp_hash,
             "otp_expires_at": expires_at,
+            "otp_sent_at": now,
+            "otp_attempts": 0,
             "phone": phone,   
         }
     )
@@ -379,6 +382,86 @@ def register_initiate(request):
         "email": email
     }, status=200)
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def resend_otp(request):
+    email = request.data.get("email")
+
+    if not email:
+        return Response(
+            {"error": "Email is required"},
+            status=400
+        )
+
+    try:
+        pending = PendingRegistration.objects.get(email=email)
+    except PendingRegistration.DoesNotExist:
+        return Response(
+            {"error": "No pending registration found"},
+            status=404
+        )
+
+    now = timezone.now()
+
+    # Allow resend only after 30 seconds
+    resend_available_at = pending.otp_sent_at + timedelta(seconds=30)
+
+    if now < resend_available_at:
+        retry_after = int(
+            (resend_available_at - now).total_seconds()
+        ) + 1
+
+        return Response(
+            {
+                "error": "Please wait before requesting another OTP",
+                "retry_after": retry_after
+            },
+            status=429
+        )
+
+    # Generate new OTP
+    otp = generate_otp()
+    otp_hash = make_password(otp)
+
+    # Send OTP
+    try:
+        send_otp(
+            pending.email,
+            otp,
+            pending.username
+        )
+    except Exception as e:
+        return Response(
+            {
+                "error": "Failed to resend OTP",
+                "details": str(e)
+            },
+            status=500
+        )
+
+    # Update OTP only after sending succeeds
+    sent_at = timezone.now()
+
+    pending.otp_hash = otp_hash
+    pending.otp_expires_at = sent_at + timedelta(minutes=10)
+    pending.otp_sent_at = sent_at
+    pending.otp_attempts = 0
+    pending.save(
+        update_fields=[
+            "otp_hash",
+            "otp_expires_at",
+            "otp_sent_at",
+            "otp_attempts"
+        ]
+    )
+
+    return Response(
+        {
+            "message": "OTP resent successfully",
+            "email": pending.email
+        },
+        status=200
+    )
 
 #A
 

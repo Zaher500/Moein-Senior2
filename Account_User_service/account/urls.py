@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 from .views import register_initiate  #A
 from .views import verify_otp  #A
+from .views import resend_otp
 
 urlpatterns = [
     # path('signup/', views.signup, name='signup'),
@@ -14,5 +15,5 @@ urlpatterns = [
     path('me/', views.get_current_user, name='current-user'),
     path('signup/', register_initiate),   #A
     path('verify-otp/', verify_otp),  #A
-
+    path('resend-otp/', resend_otp),  #A
 ]

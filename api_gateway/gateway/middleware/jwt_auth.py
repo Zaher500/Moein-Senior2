@@ -18,6 +18,8 @@ class JWTAuthMiddleware:
             '/api/register-initiate/',
             '/api/verify-otp/',
             '/api/verify-otp',
+            '/api/resend-otp/',
+            '/api/resend-otp',
         ]
 
         for path in public_paths:
