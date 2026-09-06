@@ -67,8 +67,12 @@ class UserNotificationsAPIView(APIView):
 
 class MarkNotificationReadAPIView(APIView):
     def post(self, request):
-        #user_id = request.data.get("user_id")
-        user_id = get_user_from_headers(request)["user_id"]
+        user = get_user_from_headers(request)
+
+        if not user:
+            return Response({"error": "Unauthorized"}, status=401)
+
+        user_id = user["user_id"]
         notification_id = request.data.get("notification_id")
 
         user_notifications = notifications_store.get(user_id, [])
