@@ -9,6 +9,7 @@ class LLMService:
         try:
             response = self.client.chat_completion(messages=messages)
             return response.strip()
-        except Exception as e:
-
-            raise Exception(f"LLMService error: {str(e)}")
+        except Exception as exc:
+            raise RuntimeError(
+                "LLM service request failed."
+            ) from exc
