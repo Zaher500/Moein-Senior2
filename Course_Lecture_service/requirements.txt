@@ -24,6 +24,8 @@ Pillow
 numpy
 opencv-python
 
+# OCR
+paddleocr
 
 # Hugging Face Vision / LLM client
 huggingface-hub
