@@ -1,8 +1,10 @@
 import pika
 import json
 
+
+
 from chunking import chunk_text
-from summarization import summarize_text
+from summarization import summarize_text,summarize_final
 from db.mongo import save_summary
 
 
@@ -33,7 +35,13 @@ def callback(ch, method, properties, body):
         chunk_summaries = []
 
         for i, chunk in enumerate(chunks):
+            # هدول ال 6 print بس نمحيهن مالهن داعي 
             print(f"Summarizing chunk {i + 1}/{len(chunks)}")
+            print("\n" + "=" * 80)
+            print(f"RAW CHUNK {i + 1}/{len(chunks)}")
+            print("=" * 80)
+            print(chunk)
+            print("=" * 80)
             summary = summarize_text(chunk)
 
             if summary:
@@ -45,13 +53,49 @@ def callback(ch, method, properties, body):
             return
 
         # Combine summaries
+        # Combine partial summaries
         cleaned_summaries = []
 
         for summary in chunk_summaries:
-            cleaned = summary.replace("**Summary in Arabic:**", "").strip()
-            cleaned = cleaned.replace("**Summary in English:**", "").strip()
-            cleaned_summaries.append(cleaned)
-        final_summary = " ".join(cleaned_summaries)
+            cleaned = summary.replace(
+                "**Summary in Arabic:**",
+                ""
+            ).strip()
+
+            cleaned = cleaned.replace(
+                "**Summary in English:**",
+                ""
+            ).strip()
+
+            if cleaned:
+                cleaned_summaries.append(cleaned)
+        #  بدنا نطبع الـ partial summaries قبل Stage 2 يعني بس نخلص نمحيها لعند هي print("-" * 80)
+
+        print("\n" + "=" * 80)
+        print("PARTIAL SUMMARIES")
+        print("=" * 80)
+
+        for i, summary in enumerate(cleaned_summaries, start=1):
+            print(f"\n--- PARTIAL SUMMARY {i} ---")
+            print(summary)
+            print("-" * 80)
+
+
+        combined_summaries = "\n\n".join(cleaned_summaries)
+
+        print(
+            f"Creating final summary from "
+            f"{len(cleaned_summaries)} partial summaries"
+        )
+
+        # Create ONE coherent final summary
+        final_summary = summarize_final(
+            combined_summaries
+        )
+
+        if not final_summary:
+            print("Final summarization failed")
+            return
 
         # Save to MongoDB
         save_summary(lecture_id, final_summary)

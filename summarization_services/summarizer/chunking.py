@@ -1,4 +1,4 @@
-def chunk_text(text, chunk_size=600):
+def chunk_text(text, chunk_size=1200):
     """
     Chunk text by paragraphs first, then by size.
     Preserves lists and sentences.

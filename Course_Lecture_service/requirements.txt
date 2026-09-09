@@ -3,3 +3,5 @@ djangorestframework==3.14.0
 PyMySQL==1.1.0 
 PyJWT==2.8.0
 django-cors-headers==4.3.1
+PyMuPDF
+python-dotenv

@@ -29,7 +29,10 @@ from .serializers import (
     LectureSerializer
 )
 
-
+from .utils.text_extractor import extract_text_from_file
+from .utils.document_processing.pipeline import (
+    process_document_for_summarization, 
+)
 
 
 @api_view(['POST'])
@@ -312,61 +315,179 @@ def upload_lecture(request, course_id):
             summary_status='PROCESSING',
         )
 
-         # 10. Extract text
-        try:
-            extracted_text = extract_text_from_file(file_path)
-        except Exception as e:
-            lecture.summary_status = 'FAILED'
-            lecture.save(update_fields=['summary_status'])
+        #  # 10. Extract text
+        # try:
+        #     extracted_text = extract_text_from_file(file_path)
+        # except Exception as e:
+        #     lecture.summary_status = 'FAILED'
+        #     lecture.save(update_fields=['summary_status'])
 
-            if os.path.exists(file_path):
-                os.remove(file_path)
+        #     if os.path.exists(file_path):
+        #         os.remove(file_path)
 
-            return Response(
-                {'error': f'Text extraction failed: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-                # 11. Fire-and-forget: send extracted text to ChatBot and Summarization services
-        def send_to_chatbot():
-            try:
-                send_for_chatbot_ingestion(
-                    lecture_id=lecture.lecture_id,
-                    course_id=course.course_id,
-                    student_id=student_id,
-                    text=extracted_text,
-                    source_type="lecture",
-                )
-            except Exception as e:
-                print(f"ChatBot ingestion failed: {e}")
+        #     return Response(
+        #         {'error': f'Text extraction failed: {str(e)}'},
+        #         status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        #     )
+        #         # 11. Fire-and-forget: send extracted text to ChatBot and Summarization services
+        # def send_to_chatbot():
+        #     try:
+        #         send_for_chatbot_ingestion(
+        #             lecture_id=lecture.lecture_id,
+        #             course_id=course.course_id,
+        #             student_id=student_id,
+        #             text=extracted_text,
+        #             source_type="lecture",
+        #         )
+        #     except Exception as e:
+        #         print(f"ChatBot ingestion failed: {e}")
+
+        # # def send_to_summarizer():
+        # #     try:
+        # #         send_for_summarization(lecture.lecture_id, extracted_text)
+        # #     except Exception as e:
+        # #         print(f"Summarization request failed: {e}")
 
         # def send_to_summarizer():
-        #     try:
-        #         send_for_summarization(lecture.lecture_id, extracted_text)
-        #     except Exception as e:
-        #         print(f"Summarization request failed: {e}")
+        #  try:
+        #     user_id = request.META.get("HTTP_X_USER_ID")
+        #     username = request.META.get("HTTP_X_USERNAME")
 
-        def send_to_summarizer():
-         try:
-            user_id = request.META.get("HTTP_X_USER_ID")
-            username = request.META.get("HTTP_X_USERNAME")
+        #     send_for_summarization(
+        #         lecture_id=lecture.lecture_id,
+        #         text=extracted_text,
+        #         student_id=student_id,
+        #         user_id=user_id,
+        #         username=username,
+        #         )
 
-            send_for_summarization(
-                lecture_id=lecture.lecture_id,
-                text=extracted_text,
-                student_id=student_id,
-                user_id=user_id,
-                username=username,
+        #  except Exception as e:
+        #     print(f"Summarization request failed: {e}")
+
+        # chatbot_thread = threading.Thread(target=send_to_chatbot, daemon=True)
+        # summarizer_thread = threading.Thread(target=send_to_summarizer, daemon=True)
+
+        # chatbot_thread.start()
+        # summarizer_thread.start()
+        
+        # 10. Save request data before starting background thread
+        user_id = request.META.get("HTTP_X_USER_ID")
+        username = request.META.get("HTTP_X_USERNAME")
+
+        lecture_id = lecture.lecture_id
+        course_uuid = course.course_id
+        student_uuid = student_id
+        extension = file_extension.lower()
+
+
+        # 11. Process lecture in background
+        def process_lecture_in_background():
+            try:
+                print(
+                    f"[Lecture Processing] Started: {lecture_id}"
                 )
 
-         except Exception as e:
-            print(f"Summarization request failed: {e}")
+                # ==============================================
+                # PDF / DOCX / PPTX New document understanding pipeline
+                # ==============================================
+                if extension in [".pdf", ".docx", ".pptx"]:
+                 extracted_text = process_document_for_summarization(file_path)
 
-        chatbot_thread = threading.Thread(target=send_to_chatbot, daemon=True)
-        summarizer_thread = threading.Thread(target=send_to_summarizer, daemon=True)
+                else:
+                        raise ValueError(f"Unsupported file type: {extension}")
 
-        chatbot_thread.start()
-        summarizer_thread.start()
-        
+                # ==============================================
+                # Validate extracted content
+                # ==============================================
+                if not extracted_text or not extracted_text.strip():
+                    raise ValueError(
+                        "No content could be extracted from lecture."
+                    )
+
+                print(
+                    f"[Lecture Processing] Content ready: "
+                    f"{len(extracted_text)} characters"
+                )
+
+                # ==============================================
+                # Send content to ChatBot
+                # ==============================================
+                try:
+                    send_for_chatbot_ingestion(
+                        lecture_id=lecture_id,
+                        course_id=course_uuid,
+                        student_id=student_uuid,
+                        text=extracted_text,
+                        source_type="lecture",
+                    )
+
+                    print(
+                        f"[Lecture Processing] "
+                        f"ChatBot ingestion sent: {lecture_id}"
+                    )
+
+                except Exception as e:
+                    print(
+                        f"[Lecture Processing] "
+                        f"ChatBot ingestion failed: {e}"
+                    )
+
+                # ==============================================
+                # Send content to Summarization Service
+                # ==============================================
+                try:
+                    send_for_summarization(
+                        lecture_id=lecture_id,
+                        text=extracted_text,
+                        student_id=student_uuid,
+                        user_id=user_id,
+                        username=username,
+                    )
+
+                    print(
+                        f"[Lecture Processing] "
+                        f"Summarization sent: {lecture_id}"
+                    )
+
+                except Exception as e:
+                    print(
+                        f"[Lecture Processing] "
+                        f"Summarization failed: {e}"
+                    )
+
+                    Lecture.objects.filter(
+                        lecture_id=lecture_id
+                    ).update(
+                        summary_status="FAILED"
+                    )
+
+                    return
+
+                print(
+                    f"[Lecture Processing] Completed: {lecture_id}"
+                )
+
+            except Exception as e:
+                print(
+                    f"[Lecture Processing] Failed "
+                    f"{lecture_id}: {e}"
+                )
+
+                Lecture.objects.filter(
+                    lecture_id=lecture_id
+                ).update(
+                    summary_status="FAILED"
+                )
+
+
+        # 12. Start background processing
+        processing_thread = threading.Thread(
+            target=process_lecture_in_background,
+            daemon=True,
+        )
+
+        processing_thread.start()
+                
         # 13. Return response
         return Response({
             'message': 'Lecture uploaded successfully',
