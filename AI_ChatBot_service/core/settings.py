@@ -6,20 +6,31 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
-print("HF_TOKEN from settings:", os.getenv("HF_TOKEN"))
 pymysql.install_as_MySQLdb()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-GATEWAY_SECRET = "AwZKQwAg5nowgvSvSdb4dfPZSC6eM9F_7XH6gokrJEtB93jXEsTJTmYKQGR7xUNn0ns"
-SECRET_KEY = "django-insecure-hd+n66l59vwmhcn^37p=oulwj6^q=)c8^zlfq@n+8y%&79w)@_"
+GATEWAY_SECRET = os.getenv("GATEWAY_SECRET")
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = []
+
+
+RAG_SERVICE_URL = os.getenv(
+    "RAG_SERVICE_URL",
+    "http://localhost:8005",
+)
+
+RAG_INTERNAL_API_KEY = os.getenv("RAG_INTERNAL_API_KEY")
+
+RAG_RETRIEVAL_TIMEOUT = int(
+    os.getenv("RAG_RETRIEVAL_TIMEOUT", "15")
+)
 
 
 # Application definition
@@ -77,18 +88,15 @@ WSGI_APPLICATION = "core.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": "moein_chatbot_service",
-        "USER": "root",
-        "PASSWORD": "Zaher.0968271107",
-        "HOST": "localhost",
-        "PORT": "3306",
+        "NAME": os.getenv("DB_NAME", "moein_chatbot_service"),
+        "USER": os.getenv("DB_USER", "root"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "3306"),
     }
 }
 
-# Hugging Face & GROQ API settings
-HF_API_KEY = os.getenv("HF_API_KEY")
-HF_MODEL = os.getenv("HF_MODEL")
-HF_BASE_URL = os.getenv("HF_BASE_URL")
+# GROQ API settings
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 

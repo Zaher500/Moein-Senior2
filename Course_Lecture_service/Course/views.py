@@ -18,7 +18,7 @@ from rest_framework.decorators import api_view, permission_classes, parser_class
 from .utils.text_extractor import extract_text_from_file
 from .services.summarization_client import get_summary
 from .services.summarization_client import send_for_summarization, is_summary_ready
-from .services.chatbot_client import send_for_chatbot_ingestion
+from .services.rag_client import send_for_rag_ingestion
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -241,72 +241,145 @@ def upload_lecture(request, course_id):
     Upload lecture to a specific course
     URL: POST /api/courses/COURSE_ID/lectures/upload/
     """
+
+    # ==============================================
     # 1. Authentication
+    # ==============================================
     student_id = get_student_id_from_token(request)
 
     if not student_id:
-        return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
-    
-    # 2. Authorization - check if course belongs to student
-    try:
-        course = Course.objects.get(course_id=course_id, student_id=student_id)
-    except Course.DoesNotExist:
-        return Response({'error': 'Course not found or access denied'}, status=status.HTTP_404_NOT_FOUND)
-    
-    # 3. Validate lecture data using serializer
-    serializer = LectureCreateSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    # 4. File validation
-    if 'file' not in request.FILES:
-        return Response({'error': 'No file submitted'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    uploaded_file = request.FILES['file']
-    
-    allowed_types = [
-        'application/pdf', 
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-    ]
-    
-    allowed_extensions = ['.pdf', '.docx', '.pptx']
-    file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-    
-    if (uploaded_file.content_type not in allowed_types and 
-        file_extension not in allowed_extensions):
         return Response(
-            {'error': 'Only PDF, Word, and PowerPoint files are allowed'}, 
+            {'error': 'Authentication required'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    # ==============================================
+    # 2. Authorization
+    # ==============================================
+    try:
+        course = Course.objects.get(
+            course_id=course_id,
+            student_id=student_id
+        )
+
+    except Course.DoesNotExist:
+        return Response(
+            {'error': 'Course not found or access denied'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # ==============================================
+    # 3. Validate lecture data
+    # ==============================================
+    serializer = LectureCreateSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
+    # ==============================================
+    # 4. Validate uploaded file
+    # ==============================================
+    if 'file' not in request.FILES:
+        return Response(
+            {'error': 'No file submitted'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    uploaded_file = request.FILES['file']
+
+    allowed_types = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ]
+
+    allowed_extensions = [
+        '.pdf',
+        '.docx',
+        '.pptx',
+    ]
+
+    file_extension = os.path.splitext(
+        uploaded_file.name
+    )[1].lower()
+
+    if (
+        uploaded_file.content_type not in allowed_types
+        and file_extension not in allowed_extensions
+    ):
+        return Response(
+            {
+                'error':
+                'Only PDF, Word, and PowerPoint files are allowed'
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     try:
-        # 5. Create secure file path
+        # ==============================================
+        # 5. Create secure upload directory
+        # ==============================================
         student_id_str = str(student_id)
         course_id_str = str(course_id)
-        
-        upload_dir = os.path.join(settings.MEDIA_ROOT, student_id_str, course_id_str)
-        os.makedirs(upload_dir, exist_ok=True)
-        
-        # 6. Generate unique filename
-        file_extension = os.path.splitext(uploaded_file.name)[1]
-        unique_filename = f"{uuid.uuid4()}{file_extension}"
-        file_path = os.path.join(upload_dir, unique_filename)
-        
 
-        print(f"DEBUG - MEDIA_ROOT: {settings.MEDIA_ROOT}")
-        print(f"DEBUG - upload_dir: {upload_dir}")
-        print(f"DEBUG - File saved to: {file_path}")
-        
-        # 7. Save file
+        upload_dir = os.path.join(
+            settings.MEDIA_ROOT,
+            student_id_str,
+            course_id_str,
+        )
+
+        os.makedirs(
+            upload_dir,
+            exist_ok=True
+        )
+
+        # ==============================================
+        # 6. Generate unique filename
+        # ==============================================
+        unique_filename = (
+            f"{uuid.uuid4()}{file_extension}"
+        )
+
+        file_path = os.path.join(
+            upload_dir,
+            unique_filename
+        )
+
+        print(
+            f"DEBUG - MEDIA_ROOT: "
+            f"{settings.MEDIA_ROOT}"
+        )
+
+        print(
+            f"DEBUG - upload_dir: "
+            f"{upload_dir}"
+        )
+
+        print(
+            f"DEBUG - File saved to: "
+            f"{file_path}"
+        )
+
+        # ==============================================
+        # 7. Save uploaded file
+        # ==============================================
         with open(file_path, 'wb+') as destination:
             for chunk in uploaded_file.chunks():
                 destination.write(chunk)
-        
-        # 8. Get lecture name
-        lecture_name = serializer.validated_data['lecture_name']
 
-        # 9. CREATE LECTURE IMMEDIATELY ✅
+        # ==============================================
+        # 8. Get lecture name
+        # ==============================================
+        lecture_name = serializer.validated_data[
+            'lecture_name'
+        ]
+
+        # ==============================================
+        # 9. Create Lecture immediately
+        # ==============================================
         lecture = Lecture.objects.create(
             student_id=student_id,
             course_id=course,
@@ -315,105 +388,83 @@ def upload_lecture(request, course_id):
             summary_status='PROCESSING',
         )
 
-        #  # 10. Extract text
-        # try:
-        #     extracted_text = extract_text_from_file(file_path)
-        # except Exception as e:
-        #     lecture.summary_status = 'FAILED'
-        #     lecture.save(update_fields=['summary_status'])
+        # ==============================================
+        # 10. Save required data before background thread
+        # ==============================================
+        user_id = request.META.get(
+            "HTTP_X_USER_ID"
+        )
 
-        #     if os.path.exists(file_path):
-        #         os.remove(file_path)
-
-        #     return Response(
-        #         {'error': f'Text extraction failed: {str(e)}'},
-        #         status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        #     )
-        #         # 11. Fire-and-forget: send extracted text to ChatBot and Summarization services
-        # def send_to_chatbot():
-        #     try:
-        #         send_for_chatbot_ingestion(
-        #             lecture_id=lecture.lecture_id,
-        #             course_id=course.course_id,
-        #             student_id=student_id,
-        #             text=extracted_text,
-        #             source_type="lecture",
-        #         )
-        #     except Exception as e:
-        #         print(f"ChatBot ingestion failed: {e}")
-
-        # # def send_to_summarizer():
-        # #     try:
-        # #         send_for_summarization(lecture.lecture_id, extracted_text)
-        # #     except Exception as e:
-        # #         print(f"Summarization request failed: {e}")
-
-        # def send_to_summarizer():
-        #  try:
-        #     user_id = request.META.get("HTTP_X_USER_ID")
-        #     username = request.META.get("HTTP_X_USERNAME")
-
-        #     send_for_summarization(
-        #         lecture_id=lecture.lecture_id,
-        #         text=extracted_text,
-        #         student_id=student_id,
-        #         user_id=user_id,
-        #         username=username,
-        #         )
-
-        #  except Exception as e:
-        #     print(f"Summarization request failed: {e}")
-
-        # chatbot_thread = threading.Thread(target=send_to_chatbot, daemon=True)
-        # summarizer_thread = threading.Thread(target=send_to_summarizer, daemon=True)
-
-        # chatbot_thread.start()
-        # summarizer_thread.start()
-        
-        # 10. Save request data before starting background thread
-        user_id = request.META.get("HTTP_X_USER_ID")
-        username = request.META.get("HTTP_X_USERNAME")
+        username = request.META.get(
+            "HTTP_X_USERNAME"
+        )
 
         lecture_id = lecture.lecture_id
         course_uuid = course.course_id
         student_uuid = student_id
         extension = file_extension.lower()
 
-
-        # 11. Process lecture in background
+        # ==============================================
+        # 11. Background lecture processing
+        # ==============================================
         def process_lecture_in_background():
             try:
                 print(
-                    f"[Lecture Processing] Started: {lecture_id}"
+                    f"[Lecture Processing] "
+                    f"Started: {lecture_id}"
                 )
 
-                # ==============================================
-                # PDF / DOCX / PPTX New document understanding pipeline
-                # ==============================================
-                if extension in [".pdf", ".docx", ".pptx"]:
-                 extracted_text = process_document_for_summarization(file_path)
+                # ======================================
+                # Document understanding pipeline
+                #
+                # PDF / DOCX / PPTX
+                #
+                # Includes:
+                # - normal document text
+                # - image extraction
+                # - OCR
+                # - Vision
+                # ======================================
+                if extension in [
+                    ".pdf",
+                    ".docx",
+                    ".pptx",
+                ]:
+                    extracted_text = (
+                        process_document_for_summarization(
+                            file_path
+                        )
+                    )
 
                 else:
-                        raise ValueError(f"Unsupported file type: {extension}")
-
-                # ==============================================
-                # Validate extracted content
-                # ==============================================
-                if not extracted_text or not extracted_text.strip():
                     raise ValueError(
-                        "No content could be extracted from lecture."
+                        f"Unsupported file type: "
+                        f"{extension}"
+                    )
+
+                # ======================================
+                # Validate extracted content
+                # ======================================
+                if (
+                    not extracted_text
+                    or not extracted_text.strip()
+                ):
+                    raise ValueError(
+                        "No content could be "
+                        "extracted from lecture."
                     )
 
                 print(
-                    f"[Lecture Processing] Content ready: "
+                    f"[Lecture Processing] "
+                    f"Content ready: "
                     f"{len(extracted_text)} characters"
                 )
 
-                # ==============================================
-                # Send content to ChatBot
-                # ==============================================
+                # ======================================
+                # Send extracted content to RAG
+                # ======================================
                 try:
-                    send_for_chatbot_ingestion(
+                    send_for_rag_ingestion(
                         lecture_id=lecture_id,
                         course_id=course_uuid,
                         student_id=student_uuid,
@@ -423,18 +474,19 @@ def upload_lecture(request, course_id):
 
                     print(
                         f"[Lecture Processing] "
-                        f"ChatBot ingestion sent: {lecture_id}"
+                        f"RAG ingestion sent: "
+                        f"{lecture_id}"
                     )
 
                 except Exception as e:
                     print(
                         f"[Lecture Processing] "
-                        f"ChatBot ingestion failed: {e}"
+                        f"RAG ingestion failed: {e}"
                     )
 
-                # ==============================================
-                # Send content to Summarization Service
-                # ==============================================
+                # ======================================
+                # Send same content to Summarization
+                # ======================================
                 try:
                     send_for_summarization(
                         lecture_id=lecture_id,
@@ -446,7 +498,8 @@ def upload_lecture(request, course_id):
 
                     print(
                         f"[Lecture Processing] "
-                        f"Summarization sent: {lecture_id}"
+                        f"Summarization sent: "
+                        f"{lecture_id}"
                     )
 
                 except Exception as e:
@@ -464,13 +517,14 @@ def upload_lecture(request, course_id):
                     return
 
                 print(
-                    f"[Lecture Processing] Completed: {lecture_id}"
+                    f"[Lecture Processing] "
+                    f"Completed: {lecture_id}"
                 )
 
             except Exception as e:
                 print(
-                    f"[Lecture Processing] Failed "
-                    f"{lecture_id}: {e}"
+                    f"[Lecture Processing] "
+                    f"Failed {lecture_id}: {e}"
                 )
 
                 Lecture.objects.filter(
@@ -479,27 +533,41 @@ def upload_lecture(request, course_id):
                     summary_status="FAILED"
                 )
 
-
+        # ==============================================
         # 12. Start background processing
+        # ==============================================
         processing_thread = threading.Thread(
             target=process_lecture_in_background,
             daemon=True,
         )
 
         processing_thread.start()
-                
-        # 13. Return response
-        return Response({
-            'message': 'Lecture uploaded successfully',
-            'lecture': LectureSerializer(lecture).data,
-            'file_saved_as': unique_filename
-        }, status=status.HTTP_201_CREATED)
+
+        # ==============================================
+        # 13. Return response immediately
+        # ==============================================
+        return Response(
+            {
+                'message':
+                    'Lecture uploaded successfully',
+
+                'lecture':
+                    LectureSerializer(lecture).data,
+
+                'file_saved_as':
+                    unique_filename,
+            },
+            status=status.HTTP_201_CREATED
+        )
 
     except Exception as e:
         return Response(
-        {'error': f'Upload failed: {str(e)}'},
-        status=status.HTTP_500_INTERNAL_SERVER_ERROR
-    )
+            {
+                'error':
+                    f'Upload failed: {str(e)}'
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 

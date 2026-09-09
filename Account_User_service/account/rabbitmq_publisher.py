@@ -30,3 +30,4 @@ def publish_otp(email, otp):
 
     except Exception as e:
         print("RabbitMQ Error:", str(e))
+        raise

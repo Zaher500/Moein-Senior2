@@ -8,10 +8,3 @@ urlpatterns = [
     path("user-notifications/", UserNotificationsAPIView.as_view()),  #AYO
     path("mark-as-read/", MarkNotificationReadAPIView.as_view()),   #AYO
 ]
-
-#AYO  مشان اختبار بوستمان بس
-from .views import TestPublishNotificationAPIView
-
-urlpatterns += [
-    path("test-send-notification/", TestPublishNotificationAPIView.as_view()),
-]

@@ -1,35 +1,54 @@
-# ChatBot/services/vector_store_service.py
+from threading import Lock
 
+from django.conf import settings
 from pymilvus import (
-    connections,
-    utility,
-    FieldSchema,
+    Collection,
     CollectionSchema,
     DataType,
-    Collection,
+    FieldSchema,
+    connections,
+    utility,
 )
 
 
 class VectorStoreService:
-    COLLECTION_NAME = "chatbot_lecture_chunks"
-    VECTOR_DIM = 1024  # bge-m3
-    METRIC_TYPE = "COSINE"
+    _collection = None
+    _initialized = False
+    _initialization_lock = Lock()
 
-    def __init__(self, host="localhost", port="19530"):
-        self.host = host
-        self.port = port
-        self.collection_name = self.COLLECTION_NAME
+    @classmethod
+    def get_collection(cls) -> Collection:
+        if cls._initialized and cls._collection is not None:
+            return cls._collection
 
-    def connect(self):
+        with cls._initialization_lock:
+            if cls._initialized and cls._collection is not None:
+                return cls._collection
+
+            cls._connect()
+            collection = cls._ensure_collection()
+            cls._ensure_index(collection)
+            collection.load()
+
+            cls._collection = collection
+            cls._initialized = True
+
+            return collection
+
+    @staticmethod
+    def _connect() -> None:
         connections.connect(
             alias="default",
-            host=self.host,
-            port=self.port,
+            host=settings.MILVUS_HOST,
+            port=settings.MILVUS_PORT,
         )
 
-    def create_collection_if_not_exists(self):
-        if utility.has_collection(self.collection_name):
-            return Collection(self.collection_name)
+    @classmethod
+    def _ensure_collection(cls) -> Collection:
+        collection_name = settings.MILVUS_COLLECTION
+
+        if utility.has_collection(collection_name):
+            return Collection(collection_name)
 
         fields = [
             FieldSchema(
@@ -42,7 +61,7 @@ class VectorStoreService:
             FieldSchema(
                 name="embedding",
                 dtype=DataType.FLOAT_VECTOR,
-                dim=self.VECTOR_DIM,
+                dim=settings.EMBEDDING_DIMENSION,
             ),
             FieldSchema(
                 name="chunk_text",
@@ -68,7 +87,7 @@ class VectorStoreService:
                 name="chunk_index",
                 dtype=DataType.INT64,
             ),
-            FieldSchema( 
+            FieldSchema(
                 name="source_type",
                 dtype=DataType.VARCHAR,
                 max_length=32,
@@ -81,82 +100,47 @@ class VectorStoreService:
 
         schema = CollectionSchema(
             fields=fields,
-            description="Lecture chunks for Moein chatbot RAG",
+            description="Lecture chunks for Moein RAG service",
         )
 
         return Collection(
-            name=self.collection_name,
+            name=collection_name,
             schema=schema,
         )
 
-    def create_index(self):
-        collection = Collection(self.collection_name)
-
-        index_params = {
-            "metric_type": self.METRIC_TYPE,
-            "index_type": "AUTOINDEX",
-            "params": {},
-        }
+    @staticmethod
+    def _ensure_index(collection: Collection) -> None:
+        if collection.indexes:
+            return
 
         collection.create_index(
             field_name="embedding",
-            index_params=index_params,
+            index_params={
+                "metric_type": settings.MILVUS_METRIC_TYPE,
+                "index_type": "AUTOINDEX",
+                "params": {},
+            },
         )
 
-    def load_collection(self):
-        collection = Collection(self.collection_name)
-        collection.load()
-
-    def setup(self):
-        self.connect()
-        self.create_collection_if_not_exists()
-        self.create_index()
-        self.load_collection()
-
-    def insert_chunk(
-        self,
-        chunk_id: str,
-        embedding: list[float],
-        chunk_text: str,
-        lecture_id: str,
-        course_id: str,
-        student_id: str,
-        chunk_index: int,
-        source_type: str,
-        created_at: int,
-    ):
-        collection = Collection(self.collection_name)
-
-        data = [
-            [chunk_id],
-            [embedding],
-            [chunk_text],
-            [lecture_id],
-            [course_id],
-            [student_id],
-            [chunk_index],
-            [source_type],
-            [created_at],
-        ]
-
-        collection.insert(data)
-        collection.flush()
-
+    @classmethod
     def search_chunks(
-        self,
+        cls,
         query_embedding: list[float],
         limit: int = 5,
         student_id: str | None = None,
         course_id: str | None = None,
         lecture_id: str | None = None,
-    ):
-        collection = Collection(self.collection_name)
+    ) -> list[dict]:
+        collection = cls.get_collection()
 
         filters = []
+
         if student_id:
             filters.append(f'student_id == "{student_id}"')
+
         if course_id:
             filters.append(f'course_id == "{course_id}"')
+
         if lecture_id:
             filters.append(f'lecture_id == "{lecture_id}"')
 
@@ -166,7 +150,7 @@ class VectorStoreService:
             data=[query_embedding],
             anns_field="embedding",
             param={
-                "metric_type": self.METRIC_TYPE,
+                "metric_type": settings.MILVUS_METRIC_TYPE,
                 "params": {},
             },
             limit=limit,
@@ -199,12 +183,13 @@ class VectorStoreService:
                 )
 
         return normalized_results
-    
-    def insert_chunks(self, chunks: list[dict]):
+
+    @classmethod
+    def insert_chunks(cls, chunks: list[dict]) -> None:
         if not chunks:
             raise ValueError("Chunks list cannot be empty.")
 
-        collection = Collection(self.collection_name)
+        collection = cls.get_collection()
 
         data = [
             [chunk["chunk_id"] for chunk in chunks],

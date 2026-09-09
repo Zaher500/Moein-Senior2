@@ -1,5 +1,5 @@
-from ChatBot.services.embedding_service import EmbeddingService
-from ChatBot.services.vector_store_service import VectorStoreService
+from .embedding_service import EmbeddingService
+from .vector_store_service import VectorStoreService
 
 
 class RAGService:
@@ -10,10 +10,12 @@ class RAGService:
         course_id: str | None = None,
         lecture_id: str | None = None,
         top_k: int = 5,
-        session=None,
-    ):
+    ) -> dict:
         if not student_id:
             raise ValueError("student_id is required.")
+
+        if top_k <= 0:
+            raise ValueError("top_k must be greater than zero.")
 
         if not query or not query.strip():
             return {
@@ -24,10 +26,7 @@ class RAGService:
 
         query_embedding = EmbeddingService.embed_text(query)
 
-        vector_store = VectorStoreService()
-        vector_store.setup()
-
-        chunks = vector_store.search_chunks(
+        chunks = VectorStoreService.search_chunks(
             query_embedding=query_embedding,
             limit=top_k,
             student_id=student_id,
@@ -35,10 +34,15 @@ class RAGService:
             lecture_id=lecture_id,
         )
 
-        sorted_chunks = sorted(chunks, key=lambda chunk: chunk["chunk_index"])
+        sorted_chunks = sorted(
+            chunks,
+            key=lambda chunk: chunk["chunk_index"],
+        )
 
         context_text = "\n\n".join(
-            chunk["chunk_text"] for chunk in sorted_chunks if chunk.get("chunk_text")
+            chunk["chunk_text"]
+            for chunk in sorted_chunks
+            if chunk.get("chunk_text")
         )
 
         sources = [

@@ -1,10 +1,15 @@
-import pika
 import json
-import uuid
-import threading
 import os
+import threading
+import time
+import uuid
+
+import pika
 
 from .in_memory_store import notifications_store
+
+
+RECONNECT_DELAY_SECONDS = 5
 
 
 def callback(ch, method, properties, body):
@@ -24,60 +29,119 @@ def callback(ch, method, properties, body):
             "id": str(uuid.uuid4()),
             "message": message,
             "type": type_,
-            "is_read": False
+            "is_read": False,
         })
 
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as e:
-        print(" Error:", str(e))
+        print("Notification processing error:", str(e))
+
+        ch.basic_nack(
+            delivery_tag=method.delivery_tag,
+            requeue=False,
+        )
 
 
-#Local RabbitMQ 
 def start_local_consumer():
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host='localhost')
-    )
-    channel = connection.channel()
+    while True:
+        connection = None
 
-    channel.queue_declare(queue='notifications_queue')
+        try:
+            connection = pika.BlockingConnection(
+                pika.ConnectionParameters(host="localhost")
+            )
+            channel = connection.channel()
 
-    channel.basic_consume(
-        queue='notifications_queue',
-        on_message_callback=callback,
-        auto_ack=False
-    )
+            channel.queue_declare(queue="notifications_queue")
 
-    print("Local Notifications Consumer Running...")
-    channel.start_consuming()
+            channel.basic_consume(
+                queue="notifications_queue",
+                on_message_callback=callback,
+                auto_ack=False,
+            )
+
+            print("Local Notifications Consumer Running...")
+            channel.start_consuming()
+
+        except pika.exceptions.AMQPError as e:
+            print("Local RabbitMQ connection lost:", str(e))
+            print(
+                f"Retrying Local RabbitMQ in "
+                f"{RECONNECT_DELAY_SECONDS} seconds..."
+            )
+            time.sleep(RECONNECT_DELAY_SECONDS)
+
+        except Exception as e:
+            print("Unexpected Local RabbitMQ error:", str(e))
+            time.sleep(RECONNECT_DELAY_SECONDS)
+
+        finally:
+            if connection and connection.is_open:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
 
 
-# CloudAMQP
 def start_cloud_consumer():
     cloud_url = os.environ.get("CLOUDAMQP_URL")
 
     if not cloud_url:
         print("CLOUDAMQP_URL not set, skipping cloud consumer")
         return
-    # cloud_url format: amqps://username:password@host/vhost
-    params = pika.URLParameters(cloud_url)   
 
-    connection = pika.BlockingConnection(params)
-    channel = connection.channel()
+    while True:
+        connection = None
 
-    channel.queue_declare(queue='notifications_queue')
+        try:
+            params = pika.URLParameters(cloud_url)
 
-    channel.basic_consume(
-        queue='notifications_queue',
-        on_message_callback=callback,
-        auto_ack=False
-    )
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
 
-    print("Cloud Notifications Consumer Running...")
-    channel.start_consuming()
+            channel.queue_declare(queue="notifications_queue")
+
+            channel.basic_consume(
+                queue="notifications_queue",
+                on_message_callback=callback,
+                auto_ack=False,
+            )
+
+            print("Cloud Notifications Consumer Running...")
+            channel.start_consuming()
+
+        except pika.exceptions.ProbableAuthenticationError as e:
+            print("CloudAMQP authentication failed:", str(e))
+            return
+
+        except pika.exceptions.AMQPError as e:
+            print("CloudAMQP connection lost:", str(e))
+            print(
+                f"Retrying CloudAMQP in "
+                f"{RECONNECT_DELAY_SECONDS} seconds..."
+            )
+            time.sleep(RECONNECT_DELAY_SECONDS)
+
+        except Exception as e:
+            print("Unexpected CloudAMQP error:", str(e))
+            time.sleep(RECONNECT_DELAY_SECONDS)
+
+        finally:
+            if connection and connection.is_open:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
 
 
 def start_notifications_consumer():
-    # Run both local and cloud consumers in separate threads 
-    threading.Thread(target=start_local_consumer).start()
-    threading.Thread(target=start_cloud_consumer).start()
+    threading.Thread(
+        target=start_local_consumer,
+        daemon=True,
+    ).start()
+
+    threading.Thread(
+        target=start_cloud_consumer,
+        daemon=True,
+    ).start()

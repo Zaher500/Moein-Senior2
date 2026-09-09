@@ -31,6 +31,8 @@ class RequestRouterMiddleware:
             '/api/register-initiate/': 'account',
             '/api/verify-otp': 'account',
             '/api/verify-otp/': 'account',
+            '/api/resend-otp': 'account',
+            '/api/resend-otp/': 'account',
 
             '/api/register-initiate': 'account',
             '/api/register-initiate/': 'account',
@@ -144,7 +146,15 @@ class RequestRouterMiddleware:
         print(f"[Gateway] user_id: {user_id}")
         print(f"[Gateway] student_id: {student_id}")
         print(f"[Gateway] username: {username}")
-        print(f"[Gateway] Forwarded headers: {headers}")
+        safe_headers = headers.copy()
+
+        if "X-GATEWAY-SECRET" in safe_headers:
+            safe_headers["X-GATEWAY-SECRET"] = "***"
+
+        if "Authorization" in safe_headers:
+            safe_headers["Authorization"] = "***"
+
+        print(f"[Gateway] Forwarded headers: {safe_headers}")
 
         content_type = request.META.get('CONTENT_TYPE', '')
         print(f"[Gateway] Content-Type: {content_type}")

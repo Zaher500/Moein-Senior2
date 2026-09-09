@@ -2,8 +2,8 @@ import time
 import uuid
 from typing import Dict, List
 
-from ChatBot.services.embedding_service import EmbeddingService
-from ChatBot.services.vector_store_service import VectorStoreService
+from .embedding_service import EmbeddingService
+from .vector_store_service import VectorStoreService
 
 
 class LectureIngestionService:
@@ -34,28 +34,26 @@ class LectureIngestionService:
 
         embeddings = EmbeddingService.embed_texts(chunks)
 
-        vector_store = VectorStoreService()
-        vector_store.setup()
-
         created_at = int(time.time())
-        chunk_records = []
 
-        for chunk_index, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
-            chunk_records.append(
-                {
-                    "chunk_id": str(uuid.uuid4()),
-                    "embedding": embedding,
-                    "chunk_text": chunk_text,
-                    "lecture_id": lecture_id,
-                    "course_id": course_id,
-                    "student_id": student_id,
-                    "chunk_index": chunk_index,
-                    "source_type": source_type,
-                    "created_at": created_at,
-                }
+        chunk_records = [
+            {
+                "chunk_id": str(uuid.uuid4()),
+                "embedding": embedding,
+                "chunk_text": chunk_text,
+                "lecture_id": lecture_id,
+                "course_id": course_id,
+                "student_id": student_id,
+                "chunk_index": chunk_index,
+                "source_type": source_type,
+                "created_at": created_at,
+            }
+            for chunk_index, (chunk_text, embedding) in enumerate(
+                zip(chunks, embeddings)
             )
+        ]
 
-        vector_store.insert_chunks(chunk_records)
+        VectorStoreService.insert_chunks(chunk_records)
 
         return {
             "lecture_id": lecture_id,
@@ -63,7 +61,10 @@ class LectureIngestionService:
             "student_id": student_id,
             "source_type": source_type,
             "chunks_inserted": len(chunk_records),
-            "chunk_ids": [chunk["chunk_id"] for chunk in chunk_records],
+            "chunk_ids": [
+                chunk["chunk_id"]
+                for chunk in chunk_records
+            ],
         }
 
     @classmethod
