@@ -1,5 +1,31 @@
 Django==4.2.7
 djangorestframework==3.14.0
-PyMySQL==1.1.0 
+PyMySQL==1.1.0
 PyJWT==2.8.0
 django-cors-headers==4.3.1
+
+# Environment variables
+python-dotenv
+
+# HTTP requests between services
+requests
+
+# PDF processing
+PyMuPDF
+
+# DOCX processing
+python-docx
+
+# PowerPoint processing
+python-pptx
+
+# Image processing
+Pillow
+numpy
+opencv-python
+
+# OCR
+paddleocr
+
+# Hugging Face Vision / LLM client
+huggingface-hub
