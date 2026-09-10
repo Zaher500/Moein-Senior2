@@ -28,20 +28,16 @@ class RAGService:
 
         chunks = VectorStoreService.search_chunks(
             query_embedding=query_embedding,
+            query_text=query,
             limit=top_k,
             student_id=student_id,
             course_id=course_id,
             lecture_id=lecture_id,
         )
 
-        sorted_chunks = sorted(
-            chunks,
-            key=lambda chunk: chunk["chunk_index"],
-        )
-
         context_text = "\n\n".join(
             chunk["chunk_text"]
-            for chunk in sorted_chunks
+            for chunk in chunks
             if chunk.get("chunk_text")
         )
 
@@ -53,11 +49,11 @@ class RAGService:
                 "chunk_index": chunk["chunk_index"],
                 "score": chunk["score"],
             }
-            for chunk in sorted_chunks
+            for chunk in chunks
         ]
 
         return {
-            "chunks": sorted_chunks,
+            "chunks": chunks,
             "context_text": context_text,
             "sources": sources,
         }
