@@ -9,6 +9,7 @@ from pymilvus import DataType
 from rag.services.lecture_ingestion_service import LectureIngestionService
 from rag.services.rag_service import RAGService
 from rag.services.vector_store_service import VectorStoreService
+from rag.services.embedding_service import EmbeddingService
 
 
 class HealthCheckAPITests(SimpleTestCase):
@@ -154,6 +155,55 @@ class RAGServiceTests(SimpleTestCase):
                 query="What is RAG?",
                 top_k=0,
             )
+
+
+class EmbeddingServiceTests(SimpleTestCase):
+    def setUp(self):
+        EmbeddingService._model = None
+        EmbeddingService._warmup_complete = False
+
+    def tearDown(self):
+        EmbeddingService._model = None
+        EmbeddingService._warmup_complete = False
+
+    @patch.object(EmbeddingService, "embed_text")
+    def test_warm_up_runs_once(self, mock_embed_text):
+        EmbeddingService.warm_up()
+        EmbeddingService.warm_up()
+
+        mock_embed_text.assert_called_once_with("RAG service warm-up")
+        self.assertTrue(EmbeddingService._warmup_complete)
+
+    @patch.object(EmbeddingService, "embed_text")
+    def test_failed_warm_up_is_not_marked_complete(
+        self,
+        mock_embed_text,
+    ):
+        mock_embed_text.side_effect = RuntimeError("warm-up failed")
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "warm-up failed",
+        ):
+            EmbeddingService.warm_up()
+
+        self.assertFalse(EmbeddingService._warmup_complete)
+
+    @patch.object(EmbeddingService, "_create_model")
+    def test_get_model_initializes_once_and_reuses_model(
+        self,
+        mock_create_model,
+    ):
+        mock_model = MagicMock()
+        mock_create_model.return_value = mock_model
+
+        first_model = EmbeddingService._get_model()
+        second_model = EmbeddingService._get_model()
+
+        self.assertIs(first_model, mock_model)
+        self.assertIs(second_model, mock_model)
+
+        mock_create_model.assert_called_once_with()
 
 
 class LectureIngestionServiceTests(SimpleTestCase):

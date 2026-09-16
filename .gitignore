@@ -86,3 +86,8 @@ node_modules/
 .coverage
 htmlcov/
 test_cloud_send.py
+
+# =========================
+# Scripts
+# =========================
+start-dev.ps1
