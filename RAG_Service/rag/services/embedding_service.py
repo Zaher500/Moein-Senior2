@@ -1,3 +1,4 @@
+from threading import Lock
 from typing import List
 
 from django.conf import settings
@@ -5,18 +6,31 @@ from django.conf import settings
 
 class EmbeddingService:
     _model = None
+    _model_lock = Lock()
+
+    _warmup_complete = False
+    _warmup_lock = Lock()
 
     @classmethod
     def _get_model(cls):
         if cls._model is None:
-            from sentence_transformers import SentenceTransformer
-
-            cls._model = SentenceTransformer(
-                settings.EMBEDDING_MODEL,
-                token=settings.HF_TOKEN,
-            )
+            with cls._model_lock:
+                if cls._model is None:
+                    cls._model = cls._create_model()
 
         return cls._model
+
+    @classmethod
+    def warm_up(cls) -> None:
+        if cls._warmup_complete:
+            return
+
+        with cls._warmup_lock:
+            if cls._warmup_complete:
+                return
+
+            cls.embed_text("RAG service warm-up")
+            cls._warmup_complete = True
 
     @classmethod
     def embed_text(cls, text: str) -> List[float]:
@@ -70,3 +84,12 @@ class EmbeddingService:
                 "Invalid embedding dimension: "
                 f"expected {expected_dimension}, got {len(embedding)}"
             )
+
+    @classmethod
+    def _create_model(cls):
+        from sentence_transformers import SentenceTransformer
+
+        return SentenceTransformer(
+            settings.EMBEDDING_MODEL,
+            token=settings.HF_TOKEN,
+        )
