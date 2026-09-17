@@ -86,3 +86,7 @@ node_modules/
 .coverage
 htmlcov/
 test_cloud_send.py
+
+test_chunked_large_v3.py
+test_large_v3.py
+test_large_v3_preprocessed.py

@@ -8,3 +8,4 @@ noisereduce
 pydub
 faster-whisper
 huggingface_hub
+python-dotenv
