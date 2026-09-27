@@ -5,7 +5,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from .mongo_store import create_stt_job, get_job_by_id
+from .mongo_store import create_stt_job, get_job_by_id ,get_summary_by_job_id
 from .producer import send_job_to_queue
 from .auth_helpers import get_user_from_headers
 
@@ -94,3 +94,61 @@ def get_transcript_status_view(request, job_id):
         return JsonResponse({"error": "Job not found"}, status=404)
 
     return JsonResponse(job, status=200)
+
+
+
+
+def get_summary_view(request, job_id):
+
+    if request.method != "GET":
+        return JsonResponse(
+            {"error": "Only GET method allowed"},
+            status=405
+        )
+
+    # Get student identity
+    user_data = get_user_from_headers(request)
+    student_id = user_data.get("student_id")
+
+    if not student_id:
+        return JsonResponse(
+            {"error": "Missing student ID"},
+            status=401
+        )
+
+    # Retrieve summary from MongoDB
+    job = get_summary_by_job_id(job_id, student_id)
+
+    if not job:
+        return JsonResponse(
+            {"error": "Job not found"},
+            status=404
+        )
+
+    summary_status = job.get("summary_status", "not_started")
+
+    response_data = {
+        "job_id": job_id,
+        "summary_status": summary_status,
+    }
+
+    # Summary is ready
+    if summary_status == "completed":
+
+        response_data["summary"] = job.get("summary", "")
+
+    # Summary generation failed
+    elif summary_status == "failed":
+
+        response_data["message"] = "Summary generation failed"
+
+    # Summary is not ready yet
+    elif summary_status in ["not_started", "queued", "processing"]:
+
+        response_data["message"] = "Summary is not ready yet"
+
+    else:
+
+        response_data["message"] = "Unknown summary status"
+
+    return JsonResponse(response_data, status=200)
