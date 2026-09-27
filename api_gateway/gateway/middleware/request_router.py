@@ -62,6 +62,8 @@ class RequestRouterMiddleware:
             '/stt/upload/': 'stt',
             '/stt/stt-status': 'stt',
             '/stt/stt-status/': 'stt',
+            '/stt/summary': 'stt',
+            '/stt/summary/': 'stt',
 
             '/api/quiz': 'quiz',
             '/api/quiz/': 'quiz',

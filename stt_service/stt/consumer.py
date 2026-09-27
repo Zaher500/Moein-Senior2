@@ -10,7 +10,10 @@ from stt.mongo_store import (
     update_job_status,
     save_job_result,
     mark_job_failed,
+    update_summary_status,
 )
+
+from stt.summary_producer import send_summary_job_to_queue
 
 from stt.ai_cleanup import clean_long_transcript_with_qwen_client
 from stt.notification_producer import send_notification
@@ -310,6 +313,39 @@ def callback(
             raw_transcript=raw_transcript,
             cleaned_transcript=cleaned_transcript,
         )
+
+
+        # ----------------------------------
+        # Queue summarization job
+        # ----------------------------------
+
+        try:
+
+            update_summary_status(
+                job_id,
+                "queued",
+            )
+
+            send_summary_job_to_queue(
+                job_id
+            )
+
+            print(
+                f"Summary job queued for: {job_id}"
+            )
+
+        except Exception as summary_error:
+
+            print(
+                f"Failed to queue summary job "
+                f"for {job_id}: {summary_error}"
+            )
+
+            update_summary_status(
+                job_id,
+                "failed",
+                str(summary_error),
+            )
 
         # ----------------------------------
         # Notification

@@ -24,6 +24,13 @@ def create_stt_job(job_id, student_id, user_id, original_file_name, local_file_p
         "raw_transcript": "",
         "cleaned_transcript": "",
         "error_message": "",
+
+        # Summary
+        "summary": "",
+        "summary_status": "not_started",
+        "summary_error_message": "",
+        "summary_updated_at": None,
+
         "created_at": utc_now(),
         "updated_at": utc_now(),
     }
@@ -75,4 +82,96 @@ def get_job_by_id(job_id: str, student_id: str):
     return collection.find_one(
         {"job_id": job_id, "student_id": student_id},
         {"_id": 0} 
+    )
+
+
+
+
+
+def update_summary_status(
+    job_id: str,
+    status: str,
+    error_message: str = "",
+):
+    collection.update_one(
+        {"job_id": job_id},
+        {
+            "$set": {
+                "summary_status": status,
+                "summary_error_message": error_message,
+                "summary_updated_at": utc_now(),
+                "updated_at": utc_now(),
+            }
+        },
+    )
+
+
+def save_summary_result(
+    job_id: str,
+    summary: str,
+):
+    collection.update_one(
+        {"job_id": job_id},
+        {
+            "$set": {
+                "summary": summary,
+                "summary_status": "completed",
+                "summary_error_message": "",
+                "summary_updated_at": utc_now(),
+                "updated_at": utc_now(),
+            }
+        },
+    )
+
+
+def mark_summary_failed(
+    job_id: str,
+    error_message: str,
+):
+    collection.update_one(
+        {"job_id": job_id},
+        {
+            "$set": {
+                "summary_status": "failed",
+                "summary_error_message": error_message,
+                "summary_updated_at": utc_now(),
+                "updated_at": utc_now(),
+            }
+        },
+    )
+
+
+def get_job_for_summary(
+    job_id: str,
+):
+    return collection.find_one(
+        {"job_id": job_id},
+        {
+            "_id": 0,
+            "job_id": 1,
+            "student_id": 1,
+            "user_id": 1,
+            "cleaned_transcript": 1,
+            "summary": 1,
+            "summary_status": 1,
+        },
+    )
+
+
+
+def get_summary_by_job_id(job_id: str, student_id: str):
+    return collection.find_one(
+        {
+            "job_id": job_id,
+            "student_id": student_id,
+        },
+        {
+            "_id": 0,
+            "job_id": 1,
+            "status": 1,
+            "summary": 1,
+            "summary_status": 1,
+            "summary_error_message": 1,
+            "summary_updated_at": 1,
+        },
     )

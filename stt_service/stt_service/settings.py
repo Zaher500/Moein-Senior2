@@ -99,5 +99,7 @@ BASE_PUBLIC_URL =  "https://lissom-plainly-cathi.ngrok-free.dev"
 
 RABBITMQ_HOST = 'localhost'
 RABBITMQ_QUEUE = 'stt_jobs'
+# Cleaned transcript -> Summary
+RABBITMQ_SUMMARY_QUEUE = "stt_summary_jobs"
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
