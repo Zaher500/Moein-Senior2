@@ -6,8 +6,9 @@ from .export_utils import generate_pdf, generate_word
 
 from .rabbitmq import send_to_queue
 from .serializers import LectureTextSerializer
-from .db.mongo import get_summary_by_lecture_id, is_summary_ready
+from .db.mongo import get_summary_by_lecture_id, is_summary_ready , save_extracted_text
 from .auth_helpers import get_user_from_headers
+
 
 class LectureTextAPIView(APIView):
     def post(self, request):
@@ -27,28 +28,54 @@ class LectureTextAPIView(APIView):
 
         if not serializer.is_valid():
             print("Validation errors:", serializer.errors)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         lecture_id = serializer.validated_data["lecture_id"]
         text = serializer.validated_data["text"]
 
         text = text.replace("\x00", "").strip()
 
+        if not student_id:
+            return Response(
+                {"error": "Missing student ID"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        if not text:
+            return Response(
+                {"error": "Lecture text is empty"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Save extracted text to MongoDB
+        save_extracted_text(
+            lecture_id=str(lecture_id),
+            extracted_text=text,
+            student_id=str(student_id)
+        )
+
+        print(f"Extracted text saved for lecture {lecture_id}")
+
+        # Send text to RabbitMQ for summarization
         send_to_queue({
-            "lecture_id": lecture_id,
+            "lecture_id": str(lecture_id),
             "text": text,
             "user_id": user_id,
-            "student_id": student_id
+            "student_id": str(student_id)
         })
 
         return Response(
             {
                 "message": "Text received and sent to queue",
-                "lecture_id": lecture_id,
+                "lecture_id": str(lecture_id),
                 "user_id": user_id
             },
             status=status.HTTP_202_ACCEPTED
         )
+
 
 
 class SummaryStatusAPIView(APIView):

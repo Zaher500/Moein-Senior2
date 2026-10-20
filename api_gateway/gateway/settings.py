@@ -87,6 +87,7 @@ SERVICES = {
     'notification': os.environ.get('NOTIFICATION_SERVICE_URL', 'http://localhost:8005'),  #AYO
     'quiz': os.environ.get('QUIZ_SERVICE_URL', 'https://unsynchronous-unbewitchingly-kristy.ngrok-free.dev'),
     'stt': os.environ.get('STT_SERVICE_URL', 'https://pang-veal-quilt.ngrok-free.dev'),
+    'study_plan': os.environ.get('STUDY_PLAN_SERVICE_URL', 'http://localhost:8010'),
 
 }
 
