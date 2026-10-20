@@ -16,6 +16,7 @@ class RequestRouterMiddleware:
             'stt': settings.SERVICES['stt'].rstrip('/'),
             'quiz': settings.SERVICES['quiz'].rstrip('/'),
             'notification': settings.SERVICES['notification'].rstrip('/'),
+            'study_plan': settings.SERVICES['study_plan'].rstrip('/'),
         }
 
         self.path_mapping = {
@@ -72,6 +73,9 @@ class RequestRouterMiddleware:
             '/api/notifications': 'notification',
             '/notifications/': 'notification',
             '/notifications': 'notification',
+
+            '/api/study-plans/': 'study_plan',
+            '/api/study-plans': 'study_plan',
         }
 
     def __call__(self, request):

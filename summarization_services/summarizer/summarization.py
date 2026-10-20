@@ -15,13 +15,14 @@ if not HF_API_KEY:
     )
 
 
-CHUNK_MODEL = "Qwen/Qwen3-8B"
+# CHUNK_MODEL = "Qwen/Qwen3-8B"
+CHUNK_MODEL = "Qwen/Qwen3-32B"
 FINAL_MODEL = "openai/gpt-oss-20b"
 
 
 chunk_client = InferenceClient(
     model=CHUNK_MODEL,
-    provider="nscale",
+    provider="auto",
     token=HF_API_KEY
 )
 

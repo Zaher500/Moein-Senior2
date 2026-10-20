@@ -35,6 +35,31 @@ def save_summary(lecture_id: str, summary_text: str):
         upsert=True
     )
 
+
+def save_extracted_text(
+    lecture_id: str,
+    extracted_text: str,
+    student_id: str
+):
+    now = datetime.utcnow()
+
+    summaries_collection.update_one(
+        {"lecture_id": str(lecture_id)},
+        {
+            "$set": {
+                "extracted_text": extracted_text,
+                "student_id": str(student_id),
+                "updated_at": now
+            },
+            "$setOnInsert": {
+                "created_at": now
+            }
+        },
+        upsert=True
+    )
+
+
+
 def get_summary_by_lecture_id(lecture_id: str):
     return summaries_collection.find_one(
         {"lecture_id": lecture_id, "status": "READY"},
