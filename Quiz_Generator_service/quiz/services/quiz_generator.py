@@ -278,6 +278,18 @@ def generate_quiz(
     )
 
     prompt += (
+        "TOPIC CLASSIFICATION:\n"
+        "- Assign a concise and specific topic to each question.\n"
+        "- The topic must be based only on the provided text.\n"
+        "- Use consistent topic names for questions about "
+        "the same concept.\n"
+        "- Avoid generic topics such as General or Miscellaneous.\n"
+        "- Do NOT invent topics not supported by the text.\n"
+        "- If the topic cannot be identified reliably, "
+        "use an empty string.\n\n"
+    )
+
+    prompt += (
         "Output MUST be exactly a JSON array of objects "
         "with the following schema. "
         "Do NOT wrap it in markdown block quotes "
@@ -297,7 +309,8 @@ def generate_quiz(
         '(For MCQ, this must exactly match one full option '
         'text, not a letter. For TRUE_FALSE, it must be '
         '"True" or "False".),\n'
-        '    "explanation": "..."\n'
+        '    "explanation": "...",\n'
+        '    "topic": "..."\n'
         "  }\n"
         "]"
     )
@@ -375,6 +388,27 @@ def generate_quiz(
             continue
 
         try:
+            topic = item.get("topic")
+
+            if isinstance(topic, str):
+                topic = " ".join(topic.split())
+
+                if (
+                    not topic
+                    or len(topic) > 255
+                    or topic.casefold() in {
+                        "general",
+                        "miscellaneous",
+                        "unknown",
+                        "n/a",
+                    }
+                ):
+                    topic = None
+            else:
+                topic = None
+
+            item["topic"] = topic
+
             q_type = item.get(
                 "question_type"
             )
