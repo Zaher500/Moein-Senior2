@@ -982,3 +982,149 @@ class InProgressAttemptsAPITests(TestCase):
             response.data["data"],
             [],
         )
+
+
+class QuizAnswerVisibilityAPITests(TestCase):
+    """Keep quiz answer keys private until final submission."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.student_id = uuid.uuid4()
+        self.lecture_id = uuid.uuid4()
+
+        self.quiz = Quiz.objects.create(
+            student_id=self.student_id,
+            lecture_id=self.lecture_id,
+            title="Answer Visibility Quiz",
+            source="EXISTING",
+            status="READY",
+            num_questions=1,
+            difficulty=3,
+        )
+        self.question = Question.objects.create(
+            quiz=self.quiz,
+            question_type="MCQ",
+            question_text="Which option is correct?",
+            options="A|B|C|D",
+            correct_answer="B",
+            explanation="B is correct according to the lecture.",
+            order=1,
+        )
+        self.quiz_url = reverse(
+            "quiz_detail", kwargs={"quiz_id": self.quiz.quiz_id}
+        )
+        self.lecture_url = reverse(
+            "quiz_by_lecture", kwargs={"lecture_id": self.lecture_id}
+        )
+        self.start_url = reverse(
+            "quiz_attempt_start", kwargs={"quiz_id": self.quiz.quiz_id}
+        )
+        self.submit_url = reverse(
+            "quiz_submit", kwargs={"quiz_id": self.quiz.quiz_id}
+        )
+        self.headers = {"HTTP_X_STUDENT_ID": str(self.student_id)}
+
+    def assert_student_question_safe(self, question_data):
+        self.assertEqual(
+            set(question_data.keys()),
+            {"question_id", "question_type", "question_text", "options", "order"},
+        )
+        self.assertEqual(question_data["question_text"], "Which option is correct?")
+        self.assertEqual(question_data["options"], ["A", "B", "C", "D"])
+        self.assertNotIn("correct_answer", question_data)
+        self.assertNotIn("explanation", question_data)
+
+    def test_quiz_detail_does_not_expose_answers(self):
+        response = self.client.get(self.quiz_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["difficulty"], 3)
+        self.assertEqual(len(response.data["data"]["questions"]), 1)
+        self.assert_student_question_safe(response.data["data"]["questions"][0])
+
+    def test_quiz_by_lecture_does_not_expose_answers(self):
+        response = self.client.get(self.lecture_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(len(response.data["data"]), 1)
+        self.assert_student_question_safe(response.data["data"][0]["questions"][0])
+
+    def test_autosave_and_resume_only_return_selected_answer(self):
+        start = self.client.post(self.start_url, **self.headers)
+        self.assertEqual(start.status_code, 201)
+        attempt_id = start.data["data"]["attempt_id"]
+
+        answer_url = reverse(
+            "quiz_attempt_answer", kwargs={"attempt_id": attempt_id}
+        )
+        saved = self.client.put(
+            answer_url,
+            {
+                "question_id": str(self.question.question_id),
+                "selected_answer": "A",
+            },
+            format="json",
+            **self.headers,
+        )
+        self.assertEqual(saved.status_code, 200)
+        expected_answers = [
+            {"question_id": str(self.question.question_id), "selected_answer": "A"}
+        ]
+        self.assertEqual(saved.data["data"]["answers"], expected_answers)
+
+        resumed = self.client.post(self.start_url, **self.headers)
+        self.assertEqual(resumed.status_code, 200)
+        self.assertEqual(resumed.data["data"]["attempt_id"], attempt_id)
+        self.assertEqual(resumed.data["data"]["answers"], expected_answers)
+        self.assertEqual(resumed.data["data"]["progress_percentage"], 100.0)
+
+    def test_submit_returns_correction_and_quiz_get_stays_safe(self):
+        before_progress = self.client.get(
+            reverse("learning_progress"), **self.headers
+        )
+        self.assertEqual(before_progress.status_code, 200)
+        self.assertEqual(
+            before_progress.data["data"]["overview"]["total_attempts"], 0
+        )
+
+        response = self.client.post(
+            self.submit_url,
+            {
+                "answers": [
+                    {
+                        "question_id": str(self.question.question_id),
+                        "selected_answer": "A",
+                    }
+                ]
+            },
+            format="json",
+            **self.headers,
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["percentage"], 0.0)
+
+        result = response.data["data"]["results"][0]
+        self.assertEqual(result["selected_answer"], "A")
+        self.assertEqual(result["correct_answer"], "B")
+        self.assertFalse(result["is_correct"])
+        self.assertEqual(
+            result["explanation"], "B is correct according to the lecture."
+        )
+
+        after_progress = self.client.get(
+            reverse("learning_progress"), **self.headers
+        )
+        self.assertEqual(after_progress.status_code, 200)
+        self.assertEqual(
+            after_progress.data["data"]["overview"]["total_attempts"], 1
+        )
+
+        # General quiz retrieval remains safe even after one attempt is submitted.
+        quiz_response = self.client.get(self.quiz_url)
+        self.assertEqual(quiz_response.status_code, 200)
+        self.assert_student_question_safe(
+            quiz_response.data["data"]["questions"][0]
+        )
