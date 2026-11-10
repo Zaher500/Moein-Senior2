@@ -9,6 +9,11 @@ GATEWAY_SECRET = 'AwZKQwAg5nowgvSvSdb4dfPZSC6eM9F_7XH6gokrJEtB93jXEsTJTmYKQGR7xU
 
 SECRET_KEY = 'django-insecure-gateway-key-simple-123'
 
+INTERNAL_SERVICE_SECRET = os.environ.get(      # admin
+    "INTERNAL_SERVICE_SECRET",
+    ""
+)
+
 DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 
