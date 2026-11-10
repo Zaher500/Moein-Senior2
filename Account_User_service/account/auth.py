@@ -3,15 +3,35 @@ from datetime import datetime, timedelta, timezone
 from django.conf import settings # pyright: ignore[reportMissingImports]
 from .models import User # pyright: ignore[reportMissingImports]
 
-def create_jwt_for_user(user, student):
+
+def create_jwt_for_user(user, student=None):
+    now = datetime.now(timezone.utc)
+
     payload = {
         "sub": str(user.user_id),
-        "student_id": str(student.student_id),
         "username": user.username,
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(seconds=settings.JWT_EXP_DELTA_SECONDS),
+        "role": user.role,
+        "token_version": user.token_version,        # admin
+        "iat": now,
+        "exp": now + timedelta(
+            seconds=settings.JWT_EXP_DELTA_SECONDS
+        ),
     }
-    token = jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+    if user.role == User.Role.STUDENT:
+        if student is None:
+            raise ValueError(
+                "Student profile is required for student users"
+            )
+
+        payload["student_id"] = str(student.student_id)
+
+    token = jwt.encode(
+        payload,
+        settings.JWT_SECRET,
+        algorithm=settings.JWT_ALGORITHM
+    )
+
     return token
 
 
