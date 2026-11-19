@@ -1,3 +1,5 @@
+import time
+from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -12,26 +14,8 @@ from .content_builder import build_summarization_content
 def process_document_for_summarization(
     file_path: str,
 ) -> str:
-    """
-    Full document-understanding pipeline.
-
-    Flow:
-        document parsing
-        -> image extraction
-        -> OCR
-        -> image routing
-        -> vision understanding
-        -> final ordered text
-
-    Returns:
-        Final textual content ready for summarization.
-    """
 
     path = Path(file_path)
-
-    # =========================================================
-    # Validate input
-    # =========================================================
 
     if not path.exists():
         raise FileNotFoundError(
@@ -43,67 +27,161 @@ def process_document_for_summarization(
             f"Path is not a file: {file_path}"
         )
 
-    # =========================================================
-    # 1. Parse document
-    # =========================================================
+    total_start = time.perf_counter()
+    stage_times = {}
 
-    document = process_document(
-        str(path)
+    # Measure one pipeline stage without changing its behavior.
+    def measure(stage_name, function, *args, **kwargs):
+
+        start = time.perf_counter()
+
+        try:
+            return function(*args, **kwargs)
+
+        finally:
+            elapsed = time.perf_counter() - start
+            stage_times[stage_name] = elapsed
+
+            print(
+                f"[PERF][{stage_name}] "
+                f"seconds={elapsed:.2f}",
+                flush=True,
+            )
+
+    print(
+        f"[PERF][START] file={path.name}",
+        flush=True,
     )
 
-    # =========================================================
-    # Temporary directory for extracted images
-    #
-    # We don't need to permanently keep the images after
-    # OCR + Vision are finished.
-    # =========================================================
+    try:
 
-    with TemporaryDirectory(
-        prefix="moein_document_images_"
-    ) as temp_dir:
-
-        # =====================================================
-        # 2. Extract candidate images
-        # =====================================================
-
-        extract_candidate_images(
-            document=document,
-            output_dir=temp_dir,
-            zoom=2.0,
+        # 1. Document parsing
+        document = measure(
+            "DOCUMENT_PARSING",
+            process_document,
+            str(path),
         )
 
-        # =====================================================
-        # 3. OCR
-        # =====================================================
+        with TemporaryDirectory(
+            prefix="moein_document_images_"
+        ) as temp_dir:
 
-        document = apply_ocr_to_document(
-            document
-        )
-
-        # =====================================================
-        # 4. Decide which images need Vision
-        # =====================================================
-
-        document = apply_image_routing(
-            document
-        )
-
-        # =====================================================
-        # 5. Vision understanding
-        # =====================================================
-
-        document = apply_vision_to_document(
-            document
-        )
-
-        # =====================================================
-        # 6. Build ordered final content
-        # =====================================================
-
-        final_content = (
-            build_summarization_content(
-                document
+            # 2. Image extraction
+            extracted_images = measure(
+                "IMAGE_EXTRACTION",
+                extract_candidate_images,
+                document=document,
+                output_dir=temp_dir,
+                zoom=2.0,
             )
+
+            print(
+                f"[PERF][EXTRACTED_IMAGES] "
+                f"count={len(extracted_images)}",
+                flush=True,
+            )
+
+            # 3. OCR
+            document = measure(
+                "OCR_TOTAL",
+                apply_ocr_to_document,
+                document,
+            )
+
+            # 4. Image routing
+            document = measure(
+                "IMAGE_ROUTING",
+                apply_image_routing,
+                document,
+            )
+
+            routes = Counter(
+                element.metadata.get(
+                    "processing_route", "unknown"
+                )
+                for unit in document.get_ordered_units()
+                for element in unit.get_ordered_elements()
+                if (
+                    element.type == "image"
+                    and element.metadata.get(
+                        "process_with_ai", False
+                    )
+                )
+            )
+
+            print(
+                f"[PERF][ROUTING_STATS] "
+                f"{dict(routes)}",
+                flush=True,
+            )
+
+            # 5. Vision
+            document = measure(
+                "VISION_TOTAL",
+                apply_vision_to_document,
+                document,
+            )
+
+            vision_statuses = Counter(
+                element.metadata.get(
+                    "vision_status", "NOT_PROCESSED"
+                )
+                for unit in document.get_ordered_units()
+                for element in unit.get_ordered_elements()
+                if (
+                    element.type == "image"
+                    and element.metadata.get(
+                        "process_with_ai", False
+                    )
+                )
+            )
+
+            print(
+                f"[PERF][VISION_STATS] "
+                f"{dict(vision_statuses)}",
+                flush=True,
+            )
+
+            # 6. Build final content
+            final_content = measure(
+                "CONTENT_BUILDING",
+                build_summarization_content,
+                document,
+            )
+
+        return final_content
+
+    finally:
+
+        total_elapsed = (
+            time.perf_counter() - total_start
         )
 
-    return final_content
+        print(
+            "\n========== PERFORMANCE SUMMARY ==========",
+            flush=True,
+        )
+
+        for stage, elapsed in stage_times.items():
+
+            percentage = (
+                elapsed / total_elapsed * 100
+                if total_elapsed > 0
+                else 0.0
+            )
+
+            print(
+                f"{stage}: {elapsed:.2f}s "
+                f"({percentage:.1f}%)",
+                flush=True,
+            )
+
+        print(
+            f"TOTAL_TIME: {total_elapsed:.2f}s",
+            flush=True,
+        )
+
+        print(
+            "=========================================\n",
+            flush=True,
+        )
