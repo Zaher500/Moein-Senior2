@@ -27,6 +27,30 @@ def get_user_from_token(request):
         
         # Get user from database
         user = User.objects.get(user_id=user_id)
+
+        # Reject deactivated accounts
+        if not user.is_active:
+            raise exceptions.AuthenticationFailed("Account is deactivated")
+
+        # Validate token version against the current database value.
+        token_version = payload.get("token_version")
+
+        if token_version is None:
+            # Temporarily support legacy student tokens.
+            # Admin tokens must always include a token version.
+            if user.role != User.Role.STUDENT:
+                raise exceptions.AuthenticationFailed(
+                    "Token version missing"
+                )
+
+        elif (
+            type(token_version) is not int
+            or token_version != user.token_version
+        ):
+            raise exceptions.AuthenticationFailed(
+                "Token revoked"
+            )
+
         return user
         
     except jwt.PyJWTError:

@@ -34,8 +34,21 @@ class QuestionSerializer(serializers.ModelSerializer):
         return data
 
 
+class StudentQuestionSerializer(QuestionSerializer):
+    """Expose only safe question fields to students."""
+
+    class Meta(QuestionSerializer.Meta):
+        fields = [
+            'question_id',
+            'question_type',
+            'question_text',
+            'options',
+            'order',
+        ]
+
+
 class QuizSerializer(serializers.ModelSerializer):
-    questions = QuestionSerializer(many=True, read_only=True)
+    questions = StudentQuestionSerializer(many=True, read_only=True)
 
     class Meta:
         model = Quiz

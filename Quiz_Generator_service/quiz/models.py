@@ -40,6 +40,11 @@ class Question(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name='questions')
     question_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     question_text = models.TextField()
+    topic = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+    )
     options = models.CharField(max_length=1000, null=True, blank=True)
     correct_answer = models.CharField(max_length=255)
     explanation = models.TextField()

@@ -67,7 +67,11 @@ class UserLoginSerializer(serializers.Serializer):
         # Check password
         if not user.check_password(password):
             raise serializers.ValidationError("Invalid username or password")
-        
+
+        # Reject inactive accounts
+        if not user.is_active:
+            raise serializers.ValidationError("Account is deactivated")
+
         # Add user to validated data
         data['user'] = user
         return data

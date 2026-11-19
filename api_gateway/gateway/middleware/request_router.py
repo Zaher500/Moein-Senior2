@@ -40,6 +40,11 @@ class RequestRouterMiddleware:
             '/api/verify-otp': 'account',
             '/api/verify-otp/': 'account',
 
+            '/api/admin/change-password/': 'account',
+            '/api/admin/create/': 'account',
+            '/api/admin/list/': 'account',
+            '/api/admin/': 'account',
+
             '/api/media': 'course',
             '/api/media/': 'course',
             '/api/courses': 'course',
@@ -82,7 +87,6 @@ class RequestRouterMiddleware:
         print("\n========== GATEWAY REQUEST START ==========")
         print(f"[Gateway] Incoming method: {request.method}")
         print(f"[Gateway] Incoming path: {request.path}")
-        print(f"[Gateway] Full path: {request.get_full_path()}")
 
         service_name = None
         matched_prefix = None
@@ -120,8 +124,6 @@ class RequestRouterMiddleware:
             service_url + '/',
             path.lstrip('/')
         )
-
-        print(f"[Gateway] Forward target URL: {target_url}")
 
         headers = {
             'ngrok-skip-browser-warning': 'true',
@@ -164,16 +166,6 @@ class RequestRouterMiddleware:
 
         content_type = request.META.get('CONTENT_TYPE', '')
         print(f"[Gateway] Content-Type: {content_type}")
-        print(f"[Gateway] Query params: {dict(request.GET)}")
-
-        if request.body:
-            try:
-                preview = request.body.decode("utf-8")[:500]
-            except Exception:
-                preview = str(request.body[:500])
-            print(f"[Gateway] Body preview: {preview}")
-        else:
-            print("[Gateway] No request body")
 
         try:
             if content_type.startswith('application/json') and request.body:

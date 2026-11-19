@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import pymysql  # pyright: ignore[reportMissingModuleSource]
 pymysql.install_as_MySQLdb()
@@ -18,6 +19,8 @@ SERVICES = {
 GATEWAY_SECRET = 'AwZKQwAg5nowgvSvSdb4dfPZSC6eM9F_7XH6gokrJEtB93jXEsTJTmYKQGR7xUNn0ns'
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-#^t+2w=q^^orq*4-cqj9sb2df+(mia-xy@b)miclt*%)naw3yn'
+
+INTERNAL_SERVICE_SECRET = os.environ.get("INTERNAL_SERVICE_SECRET", "") # admin
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -119,7 +122,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'Account_User_service',
         'USER': 'root',
-        'PASSWORD': 'Zaher.0968271107',
+        'PASSWORD': os.environ.get('MOEIN_DB_PASSWORD', ''),
         'HOST': 'localhost',
         'PORT': '3306',
     }

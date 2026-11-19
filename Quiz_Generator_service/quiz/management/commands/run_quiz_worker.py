@@ -4,8 +4,9 @@ import pika
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 
-from quiz.models import Quiz, Question
+from quiz.models import Quiz, QuizAttempt, Question
 from quiz.services.quiz_generator import generate_quiz
 from quiz.services.mongo_store import store_llm_response
 
@@ -87,6 +88,7 @@ class Command(BaseCommand):
             )
 
             quiz = None
+            claimed = 0
 
             try:
                 quiz = Quiz.objects.get(
@@ -102,15 +104,30 @@ class Command(BaseCommand):
                     else quiz.difficulty
                 )
 
-                quiz.status = "PROCESSING"
-                quiz.error = None
-
-                quiz.save(
-                    update_fields=[
-                        "status",
-                        "error"
-                    ]
+                # A single conditional UPDATE claims a pending quiz only
+                # when it has no attempts, including incomplete ones.
+                # EXISTS avoids a related-table join in MySQL UPDATE.
+                has_attempts = QuizAttempt.objects.filter(
+                    quiz_id=OuterRef("pk")
                 )
+                claimed = (
+                    Quiz.objects.filter(
+                        quiz_id=quiz_id,
+                        status="PENDING",
+                    )
+                    .filter(~Exists(has_attempts))
+                    .update(status="PROCESSING", error=None)
+                )
+
+                if claimed == 0:
+                    self.stdout.write(
+                        f"Skipping quiz {quiz_id}: "
+                        "not pending or already has attempts"
+                    )
+                    ch.basic_ack(
+                        delivery_tag=method.delivery_tag
+                    )
+                    return
 
                 if not text:
                     raise Exception(
@@ -130,52 +147,81 @@ class Command(BaseCommand):
                     difficulty=difficulty,
                 )
 
+                replacement_blocked = False
                 with transaction.atomic():
-                    quiz.questions.all().delete()
-
-                    for i, q_data in enumerate(
-                        valid_questions,
-                        start=1
-                    ):
-                        Question.objects.create(
-                            quiz=quiz,
-                            question_type=q_data.get(
-                                "question_type"
-                            ),
-                            question_text=q_data.get(
-                                "question_text"
-                            ),
-                            options=normalize_options(
-                                q_data.get("options")
-                            ),
-                            correct_answer=q_data.get(
-                                "correct_answer"
-                            ),
-                            explanation=q_data.get(
-                                "explanation",
-                                ""
-                            ),
-                            order=i
-                        )
-
-                    if valid_questions:
-                        quiz.status = "READY"
-                        quiz.error = None
-
-                    else:
-                        quiz.status = "FAILED"
-                        quiz.error = (
-                            "LLM failed to generate valid "
-                            "questions matching the "
-                            "requested schema."
-                        )
-
-                    quiz.save(
-                        update_fields=[
-                            "status",
-                            "error"
-                        ]
+                    # Lock the quiz while checking for newly created attempts.
+                    locked_quiz = Quiz.objects.select_for_update().get(
+                        quiz_id=quiz_id
                     )
+                    if locked_quiz.attempts.exists():
+                        # An attempt appeared after this worker claimed the quiz.
+                        # Keep its original questions and make it resumable.
+                        if not locked_quiz.questions.exists():
+                            raise ValueError(
+                                "Cannot resume quiz: attempts exist but questions are missing"
+                            )
+                        locked_quiz.status = "READY"
+                        locked_quiz.error = None
+                        locked_quiz.save(update_fields=["status", "error"])
+                        replacement_blocked = True
+                    else:
+                        quiz.questions.all().delete()
+
+                        for i, q_data in enumerate(
+                            valid_questions,
+                            start=1
+                        ):
+                            Question.objects.create(
+                                quiz=quiz,
+                                question_type=q_data.get(
+                                    "question_type"
+                                ),
+                                question_text=q_data.get(
+                                    "question_text"
+                                ),
+                                topic=q_data.get(
+                                    "topic"
+                                ),
+                                options=normalize_options(
+                                    q_data.get("options")
+                                ),
+                                correct_answer=q_data.get(
+                                    "correct_answer"
+                                ),
+                                explanation=q_data.get(
+                                    "explanation",
+                                    ""
+                                ),
+                                order=i
+                            )
+
+                        if valid_questions:
+                            quiz.status = "READY"
+                            quiz.error = None
+                        else:
+                            quiz.status = "FAILED"
+                            quiz.error = (
+                                "LLM failed to generate valid "
+                                "questions matching the "
+                                "requested schema."
+                            )
+
+                        quiz.save(
+                            update_fields=[
+                                "status",
+                                "error"
+                            ]
+                        )
+
+                if replacement_blocked:
+                    self.stdout.write(
+                        f"Skipping question replacement for quiz {quiz_id}: "
+                        "existing attempts must be preserved"
+                    )
+                    ch.basic_ack(
+                        delivery_tag=method.delivery_tag
+                    )
+                    return
 
                 try:
                     store_llm_response(
@@ -198,15 +244,15 @@ class Command(BaseCommand):
                 )
 
             except Exception as e:
-                if quiz:
-                    quiz.status = "FAILED"
-                    quiz.error = str(e)
-
-                    quiz.save(
-                        update_fields=[
-                            "status",
-                            "error"
-                        ]
+                # Only a worker that successfully claimed this quiz may
+                # mark it FAILED, and only while it is still PROCESSING.
+                if claimed:
+                    Quiz.objects.filter(
+                        quiz_id=quiz_id,
+                        status="PROCESSING",
+                    ).update(
+                        status="FAILED",
+                        error=str(e),
                     )
 
                 self.stdout.write(

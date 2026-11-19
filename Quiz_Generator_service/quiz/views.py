@@ -16,6 +16,7 @@ from .services.quiz_generator import generate_quiz
 from .services.mongo_store import store_llm_response
 from .services.difficulty_engine import get_next_difficulty
 from .services.progress_service import get_student_progress
+from .services.error_analysis_service import get_student_error_analysis
 from .rabbitmq_client import publish_quiz_job
 
 
@@ -191,6 +192,7 @@ def _process_quiz_generation(
                     quiz=quiz,
                     question_type=q_data.get('question_type'),
                     question_text=q_data.get('question_text'),
+                    topic=q_data.get('topic'),
                     options=q_data.get('options', []),
                     correct_answer=q_data.get('correct_answer'),
                     explanation=q_data.get('explanation', ''),
@@ -1281,5 +1283,35 @@ def learning_progress_view(request):
         True,
         "Learning progress fetched successfully",
         progress,
+        status_code=200
+    )
+
+
+
+@api_view(['GET'])
+def review_topics_view(request):
+    student_id = request.headers.get('X-Student-ID')
+
+    if not student_id:
+        return build_response(
+            False,
+            'X-Student-ID header is missing',
+            status_code=400
+        )
+
+    student_id_error = _validate_uuid(
+        student_id,
+        'X-Student-ID'
+    )
+
+    if student_id_error:
+        return student_id_error
+
+    analysis = get_student_error_analysis(student_id)
+
+    return build_response(
+        True,
+        'Review topics fetched successfully',
+        analysis,
         status_code=200
     )
