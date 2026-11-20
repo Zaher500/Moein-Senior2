@@ -23,7 +23,8 @@ from .auth import create_jwt_for_user
 from .jwt_utils import get_user_from_token
 from django.conf import settings
 
-
+from django.contrib.auth.password_validation import validate_password  #admin
+from django.core.exceptions import ValidationError                     #admin
 
 
 @api_view(['POST'])
@@ -64,44 +65,119 @@ def signup(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
     """
-    User login endpoint
-    Expected JSON:
-    {
-        "username": "john_doe",
-        "password": "password123"
-    }
+    Login endpoint for students and admins.
     """
     serializer = UserLoginSerializer(data=request.data)
-    
-    if serializer.is_valid():
-        user = serializer.validated_data['user']
-        
-        # Generate JWT token
-        token = create_jwt_for_user(user, student=Student.objects.get(user_id=user))
-        
-        
-        # Get student profile
+
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    user = serializer.validated_data['user']
+
+    # Only students have a Student profile.
+    student = None
+
+    if user.role == User.Role.STUDENT:
         student = Student.objects.get(user_id=user)
-        
-        return Response({
-            'message': 'Login successful',
-            'token': token,
-            'user': {
-                'user_id': str(user.user_id),
-                'username': user.username,
-                'email': user.email,
-                'phone': user.phone
-            },
-            'student': {
-                'student_id': str(student.student_id)
-            }
-        }, status=status.HTTP_200_OK)
-    
-    return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Generate Moein JWT.
+    token = create_jwt_for_user(user, student=student)
+
+    return Response({
+        'message': 'Login successful',
+        'token': token,
+        'user': {
+            'user_id': str(user.user_id),
+            'username': user.username,
+            'email': user.email,
+            'phone': user.phone,
+            'role': user.role,
+            'must_change_password': user.must_change_password,
+        },
+        'student': {
+            'student_id': str(student.student_id)
+        } if student else None,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def change_admin_password(request):
+    user = get_user_from_token(request)
+
+    if user is None:
+        return Response(
+            {'error': 'Authentication required'},
+            status=401
+        )
+
+    if user.role not in (User.Role.ADMIN, User.Role.MAIN_ADMIN):
+        return Response(
+            {'error': 'Admin access required'},
+            status=403
+        )
+
+    current_password = request.data.get('current_password')
+    new_password = request.data.get('new_password')
+    confirm_password = request.data.get('confirm_password')
+
+    if not all(
+        isinstance(value, str) and value
+        for value in (current_password, new_password, confirm_password)
+    ):
+        return Response(
+            {'error': 'All password fields are required'},
+            status=400
+        )
+
+    if not user.check_password(current_password):
+        return Response(
+            {'error': 'Incorrect current password'},
+            status=400
+        )
+
+    if new_password != confirm_password:
+        return Response(
+            {'error': 'Passwords do not match'},
+            status=400
+        )
+
+    if user.check_password(new_password):
+        return Response(
+            {'error': 'New password must be different'},
+            status=400
+        )
+
+    try:
+        validate_password(new_password, user=user)
+    except ValidationError as exc:
+        return Response(
+            {'errors': exc.messages},
+            status=400
+        )
+
+    user.set_password(new_password)
+    user.must_change_password = False
+    user.token_version += 1
+
+    user.save(update_fields=[
+        'password',
+        'must_change_password',
+        'token_version',
+        'updated_at',
+    ])
+
+    return Response(
+        {'message': 'Password changed successfully'},
+        status=200
+    )
 
 
 @api_view(['PUT', 'PATCH'])
@@ -114,6 +190,21 @@ def edit_account(request):
 
     if not user:
         return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Enforce password change before admin account editing.
+    if user.role in (User.Role.ADMIN, User.Role.MAIN_ADMIN):
+        if user.must_change_password:
+            return Response(
+                {'error': 'Password change required'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Admin passwords must be changed using the dedicated endpoint.
+        if 'password' in request.data or 'password_confirm' in request.data:
+            return Response(
+                {'error': 'Use the admin password change endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
     serializer = EditAccountSerializer(
         user,
@@ -147,6 +238,14 @@ def delete_account(request):
         user = get_user_from_token(request)
         if not user:
             return Response({'error': 'Authentication required'}, status=401)
+
+        # Only students can delete their own accounts.
+        # Admin accounts are managed separately by the Main Admin.
+        if user.role != User.Role.STUDENT:
+            return Response(
+                {'error': 'This endpoint is only available for students'},
+                status=403
+            )
 
         # 2) Validate password
         password = request.data.get('password')
@@ -195,46 +294,53 @@ def delete_account(request):
         return Response({"error": str(e)}, status=500)
 
 
+
 @api_view(['GET'])
 def get_current_user(request):
     """
-    Get current authenticated user's information
-    Requires: Authorization: Bearer <token>
+    Get current authenticated user's information.
+    Supports STUDENT, ADMIN, and MAIN_ADMIN.
     """
     user = get_user_from_token(request)
-    
-    if not user:
-        return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
-    
-    try:
-        # Get student profile
-        student = Student.objects.get(user_id=user)
-        
-        return Response({
-            'user': {
-                'user_id': str(user.user_id),
-                'username': user.username,
-                'email': user.email,
-                'phone': user.phone,
-                'created_at': user.created_at
-            },
-            'student': {
-                'student_id': str(student.student_id)
-            }
-        }, status=status.HTTP_200_OK)
-        
-    except Student.DoesNotExist:
-        return Response({
-            'user': {
-                'user_id': str(user.user_id),
-                'username': user.username,
-                'email': user.email,
-                'phone': user.phone,
-                'created_at': user.created_at
-            },
-            'student': None,
-            'message': 'Student profile not found'
-        }, status=status.HTTP_200_OK)
+
+    if user is None:
+        return Response(
+            {'error': 'Authentication required'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    user_data = {
+        'user_id': str(user.user_id),
+        'username': user.username,
+        'email': user.email,
+        'phone': user.phone,
+        'role': user.role,
+        'must_change_password': user.must_change_password,
+        'created_at': user.created_at,
+    }
+
+    student_data = None
+
+    # Only students have a Student profile.
+    if user.role == User.Role.STUDENT:
+        student = Student.objects.filter(user_id=user).first()
+
+        if student is None:
+            return Response({
+                'user': user_data,
+                'student': None,
+                'message': 'Student profile not found',
+            }, status=status.HTTP_200_OK)
+
+        student_data = {
+            'student_id': str(student.student_id)
+        }
+
+    return Response({
+        'user': user_data,
+        'student': student_data,
+    }, status=status.HTTP_200_OK)
+
 
 
 @api_view(['GET'])
