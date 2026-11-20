@@ -11,7 +11,10 @@ from django.db.models import Count
 from .models import Quiz, Question, QuizAttempt, Answer
 from .serializers import QuizSerializer
 from .services.file_extractor import extract_text_from_file
-from .services.course_client import fetch_lecture_file
+from .services.course_client import (
+    fetch_lecture_file,
+    fetch_course_lectures,
+)
 from .services.quiz_generator import generate_quiz
 from .services.mongo_store import store_llm_response
 from .services.difficulty_engine import get_next_difficulty
@@ -261,6 +264,7 @@ def _create_pending_quiz_and_publish(
     scope=None,
     text=None,
     original_filename=None,
+    exam_lecture_ids=None,
 ):
     student_id = request.headers.get('X-Student-ID')
 
@@ -289,6 +293,9 @@ def _create_pending_quiz_and_publish(
             status='PENDING',
             num_questions=num_questions,
             difficulty=difficulty,
+            exam_lecture_ids=(
+                exam_lecture_ids if source_type == 'EXAM' else []
+            ),
         )
     except Exception as e:
         return build_response(
@@ -318,12 +325,51 @@ def _create_pending_quiz_and_publish(
     if original_filename:
         payload['original_filename'] = original_filename
 
+    if source_type == "EXAM":
+        from .services.exam_course_loader import stage_course_lecture_file
+        from .services.exam_staging import cleanup_exam_staging
+
+        try:
+            for selected_lecture_id in quiz.exam_lecture_ids:
+                stage_course_lecture_file(
+                    request=request,
+                    quiz_id=quiz.quiz_id,
+                    lecture_id=selected_lecture_id,
+                )
+
+        except Exception:
+            quiz.status = "FAILED"
+            quiz.error = "Failed to prepare exam lecture files"
+            quiz.save(update_fields=["status", "error"])
+
+            try:
+                cleanup_exam_staging(quiz.quiz_id)
+            except OSError:
+                pass
+
+            return build_response(
+                False,
+                "Failed to prepare exam lecture files",
+                status_code=502,
+            )
+
     try:
         publish_quiz_job(payload)
 
     except Exception as e:
-        quiz.status = 'FAILED'
-        quiz.save(update_fields=['status'])
+        if source_type == "EXAM":
+            quiz.status = "FAILED"
+            quiz.error = "Failed to publish exam generation job"
+            quiz.save(update_fields=["status", "error"])
+
+            try:
+                cleanup_exam_staging(quiz.quiz_id)
+            except OSError:
+                pass
+
+        else:
+            quiz.status = 'FAILED'
+            quiz.save(update_fields=['status'])
 
         return build_response(
             False,
@@ -340,6 +386,186 @@ def _create_pending_quiz_and_publish(
             'difficulty': quiz.difficulty,
         },
         status_code=202
+    )
+
+
+
+@api_view(['POST'])
+def generate_exam_view(request):
+    student_id = request.headers.get('X-Student-ID')
+
+    if not student_id:
+        return build_response(
+            False,
+            'X-Student-ID header is required',
+            status_code=401
+        )
+
+    error = _validate_uuid(student_id, 'X-Student-ID')
+    if error:
+        return error
+
+    student_id = str(uuid.UUID(str(student_id)))
+
+    course_id = request.data.get('course_id')
+    selection_mode = request.data.get('selection_mode')
+    lecture_ids = request.data.get('lecture_ids')
+    num_questions = request.data.get('num_questions', 5)
+    question_mode = request.data.get('question_mode', 'mixed')
+    title = request.data.get('title', 'Generated Exam')
+
+    if not course_id:
+        return build_response(
+            False,
+            'course_id is required',
+            status_code=400
+        )
+
+    error = _validate_uuid(course_id, 'course_id')
+    if error:
+        return error
+
+    course_id = str(uuid.UUID(str(course_id)))
+
+    if selection_mode not in ['selected', 'entire_course']:
+        return build_response(
+            False,
+            'selection_mode must be selected or entire_course',
+            status_code=400
+        )
+
+    if question_mode not in ['mcq', 'true_false', 'mixed']:
+        return build_response(
+            False,
+            'question_mode must be mcq, true_false, or mixed',
+            status_code=400
+        )
+
+    if isinstance(num_questions, (bool, float)):
+        return build_response(
+            False,
+            'num_questions must be a positive integer',
+            status_code=400
+        )
+
+    num_questions, error_response = _validate_num_questions(
+        num_questions
+    )
+
+    if error_response:
+        return error_response
+
+    selected_ids = []
+
+    if selection_mode == 'selected':
+        if not isinstance(lecture_ids, list) or not lecture_ids:
+            return build_response(
+                False,
+                'lecture_ids must be a non-empty list',
+                status_code=400
+            )
+
+        for lecture_id in lecture_ids:
+            error = _validate_uuid(lecture_id, 'lecture_id')
+            if error:
+                return error
+
+            selected_ids.append(str(uuid.UUID(str(lecture_id))))
+
+        if len(set(selected_ids)) != len(selected_ids):
+            return build_response(
+                False,
+                'Duplicate lecture_ids are not allowed',
+                status_code=400
+            )
+
+    elif lecture_ids not in (None, []):
+        return build_response(
+            False,
+            'lecture_ids is only allowed in selected mode',
+            status_code=400
+        )
+
+    try:
+        lectures = fetch_course_lectures(request, course_id)
+    except (RuntimeError, ValueError):
+        return build_response(
+            False,
+            'Unable to verify course lectures',
+            status_code=502
+        )
+
+    lecture_map = {}
+
+    try:
+        for lecture in lectures:
+            lecture_id = str(uuid.UUID(str(lecture['lecture_id'])))
+            lecture_course_id = str(
+                uuid.UUID(str(lecture['course_id']))
+            )
+            lecture_student_id = str(
+                uuid.UUID(str(lecture['student_id']))
+            )
+
+            if (
+                lecture_course_id != course_id
+                or lecture_student_id != student_id
+                or lecture_id in lecture_map
+            ):
+                raise ValueError('Invalid lecture data')
+
+            lecture_map[lecture_id] = lecture
+
+    except (TypeError, KeyError, ValueError, AttributeError):
+        return build_response(
+            False,
+            'Course Service returned invalid lecture data',
+            status_code=502
+        )
+
+    if selection_mode == 'entire_course':
+        selected_ids = list(lecture_map.keys())
+
+    if not selected_ids:
+        return build_response(
+            False,
+            'No lectures available for this exam',
+            status_code=400
+        )
+
+    if any(lecture_id not in lecture_map for lecture_id in selected_ids):
+        return build_response(
+            False,
+            'Some selected lectures do not belong to this course',
+            status_code=400
+        )
+
+    if any(
+        lecture_map[lecture_id].get('file_exists') is not True
+        for lecture_id in selected_ids
+    ):
+        return build_response(
+            False,
+            'All selected lectures must have available files',
+            status_code=400
+        )
+
+    if num_questions < len(selected_ids):
+        return build_response(
+            False,
+            'num_questions must be at least the number of lectures',
+            status_code=400
+        )
+
+    return _create_pending_quiz_and_publish(
+        request=request,
+        source_type='EXAM',
+        lecture_id=None,
+        course_id=course_id,
+        title=title,
+        num_questions=num_questions,
+        question_mode=question_mode,
+        exam_lecture_ids=selected_ids,
     )
 
 

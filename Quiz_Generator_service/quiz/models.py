@@ -6,6 +6,7 @@ class Quiz(models.Model):
         ('FILE', 'FILE'),
         ('EXISTING', 'EXISTING'),
         ('SCOPE', 'SCOPE'),
+        ('EXAM', 'EXAM'),
     ]
     STATUS_CHOICES = [
         ('PENDING', 'PENDING'),
@@ -17,6 +18,10 @@ class Quiz(models.Model):
     quiz_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     lecture_id = models.UUIDField(null=True, blank=True)
     course_id = models.UUIDField(null=True, blank=True)
+    exam_lecture_ids = models.JSONField(
+        default=list,
+        blank=True,
+    )
     student_id = models.UUIDField()
     title = models.CharField(max_length=255)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
@@ -42,6 +47,10 @@ class Question(models.Model):
     question_text = models.TextField()
     topic = models.CharField(
         max_length=255,
+        null=True,
+        blank=True,
+    )
+    source_lecture_id = models.UUIDField(
         null=True,
         blank=True,
     )
