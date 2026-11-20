@@ -7,12 +7,14 @@ from unittest.mock import patch
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
-from rest_framework.test import APIClient
+from requests.exceptions import Timeout
+from rest_framework.test import APIClient, APIRequestFactory
 
 from .models import Answer, Quiz, Question, QuizAttempt
+from .services.course_client import fetch_course_lectures
 from .services.error_analysis_service import get_student_error_analysis
 from .services.quiz_generator import generate_quiz
-
+from .views import generate_exam_view
 
 class LearningProgressAPITests(TestCase):
     def setUp(self):
@@ -2235,3 +2237,439 @@ class ReviewTopicsAPITests(TestCase):
         self.assertEqual(topic["incorrect_answers"], 3)
         self.assertEqual(topic["error_rate"], 100.0)
         self.assertEqual(topic["priority"], "HIGH")
+
+
+class CourseLecturesClientTests(TestCase):
+    def setUp(self):
+        self.course_id = uuid.uuid4()
+        self.student_id = uuid.uuid4()
+
+        self.request = SimpleNamespace(
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Student-ID": str(self.student_id),
+            }
+        )
+
+        self.lectures = [
+            {
+                "lecture_id": str(uuid.uuid4()),
+                "file_exists": True,
+            }
+        ]
+
+        self.payload = {
+            "course": {
+                "course_id": str(self.course_id),
+            },
+            "lectures": self.lectures,
+        }
+
+    @patch("quiz.services.course_client.requests.get")
+    def test_fetch_success_and_forward_headers(self, mock_get):
+        mock_get.return_value.json.return_value = self.payload
+
+        with patch.dict(
+            "os.environ",
+            {"COURSE_SERVICE_URL": "http://course.test/"},
+        ):
+            result = fetch_course_lectures(
+                self.request,
+                self.course_id,
+            )
+
+        self.assertEqual(result, self.lectures)
+
+        mock_get.assert_called_once_with(
+            f"http://course.test/api/courses/{self.course_id}/lectures/",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Student-ID": str(self.student_id),
+            },
+            timeout=(5, 30),
+        )
+
+    @patch("quiz.services.course_client.requests.get")
+    def test_connection_timeout(self, mock_get):
+        mock_get.side_effect = Timeout("Connection timed out")
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Failed to fetch course lectures",
+        ):
+            fetch_course_lectures(
+                self.request,
+                self.course_id,
+            )
+
+    @patch("quiz.services.course_client.requests.get")
+    def test_invalid_json(self, mock_get):
+        mock_get.return_value.json.side_effect = ValueError(
+            "Invalid JSON"
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Course Service returned invalid JSON",
+        ):
+            fetch_course_lectures(
+                self.request,
+                self.course_id,
+            )
+
+    @patch("quiz.services.course_client.requests.get")
+    def test_mismatched_course_id(self, mock_get):
+        mock_get.return_value.json.return_value = {
+            "course": {
+                "course_id": str(uuid.uuid4()),
+            },
+            "lectures": self.lectures,
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "invalid lectures response",
+        ):
+            fetch_course_lectures(
+                self.request,
+                self.course_id,
+            )
+
+    @patch("quiz.services.course_client.requests.get")
+    def test_invalid_response_structure(self, mock_get):
+        invalid_responses = [
+            [],
+            {},
+            {"course": None, "lectures": []},
+            {
+                "course": {"course_id": str(self.course_id)},
+                "lectures": "invalid",
+            },
+        ]
+
+        for payload in invalid_responses:
+            with self.subTest(payload=payload):
+                mock_get.return_value.json.return_value = payload
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "invalid lectures response",
+                ):
+                    fetch_course_lectures(
+                        self.request,
+                        self.course_id,
+                    )
+
+
+class GenerateExamAPITests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.stage_lecture_patcher = patch(
+            "quiz.services.exam_course_loader.stage_course_lecture_file"
+        )
+        self.mock_stage_lecture = self.stage_lecture_patcher.start()
+        self.addCleanup(self.stage_lecture_patcher.stop)
+        self.student_id = uuid.uuid4()
+        self.course_id = uuid.uuid4()
+        self.lecture_ids = [uuid.uuid4(), uuid.uuid4()]
+
+        self.lectures = [
+            {
+                "lecture_id": str(lecture_id),
+                "course_id": str(self.course_id),
+                "student_id": str(self.student_id),
+                "file_exists": True,
+            }
+            for lecture_id in self.lecture_ids
+        ]
+
+        self.payload = {
+            "course_id": str(self.course_id),
+            "selection_mode": "selected",
+            "lecture_ids": [
+                str(lecture_id)
+                for lecture_id in self.lecture_ids
+            ],
+            "num_questions": 6,
+            "question_mode": "mixed",
+        }
+
+    def post_exam(self, payload):
+        request = self.factory.post(
+            "/api/quiz/generate/exam/",
+            payload,
+            format="json",
+            HTTP_X_STUDENT_ID=str(self.student_id),
+        )
+        return generate_exam_view(request)
+
+    @patch("quiz.views.publish_quiz_job")
+    @patch("quiz.views.fetch_course_lectures")
+    def test_selected_exam_success(self, mock_fetch, mock_publish):
+        mock_fetch.return_value = self.lectures
+
+        response = self.post_exam(self.payload)
+
+        self.assertEqual(response.status_code, 202)
+
+        quiz = Quiz.objects.get(
+            quiz_id=response.data["data"]["quiz_id"]
+        )
+
+        self.assertEqual(quiz.source, "EXAM")
+        self.assertEqual(quiz.status, "PENDING")
+        self.assertEqual(quiz.num_questions, 6)
+        self.assertIsNone(quiz.lecture_id)
+        self.assertEqual(quiz.course_id, self.course_id)
+        self.assertEqual(
+            quiz.exam_lecture_ids,
+            self.payload["lecture_ids"],
+        )
+
+        mock_publish.assert_called_once()
+
+        job = mock_publish.call_args.args[0]
+        self.assertEqual(job["source_type"], "EXAM")
+        self.assertEqual(job["course_id"], str(self.course_id))
+        self.assertNotIn("text", job)
+        self.assertNotIn("Authorization", job)
+
+    @patch("quiz.views.publish_quiz_job")
+    @patch("quiz.views.fetch_course_lectures")
+    def test_entire_course_success(self, mock_fetch, mock_publish):
+        mock_fetch.return_value = self.lectures
+
+        payload = {
+            "course_id": str(self.course_id),
+            "selection_mode": "entire_course",
+            "num_questions": 4,
+        }
+
+        response = self.post_exam(payload)
+
+        self.assertEqual(response.status_code, 202)
+
+        quiz = Quiz.objects.get(
+            quiz_id=response.data["data"]["quiz_id"]
+        )
+
+        self.assertEqual(
+            quiz.exam_lecture_ids,
+            [str(item) for item in self.lecture_ids],
+        )
+
+        mock_publish.assert_called_once()
+
+    @patch("quiz.views.fetch_course_lectures")
+    def test_duplicate_lectures_rejected(self, mock_fetch):
+        payload = self.payload.copy()
+        payload["lecture_ids"] = [
+            str(self.lecture_ids[0]),
+            str(self.lecture_ids[0]),
+        ]
+
+        response = self.post_exam(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Quiz.objects.count(), 0)
+        mock_fetch.assert_not_called()
+
+    @patch("quiz.views.fetch_course_lectures")
+    def test_unknown_lecture_rejected(self, mock_fetch):
+        mock_fetch.return_value = self.lectures
+
+        payload = self.payload.copy()
+        payload["lecture_ids"] = [str(uuid.uuid4())]
+
+        response = self.post_exam(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Quiz.objects.count(), 0)
+
+    @patch("quiz.views.fetch_course_lectures")
+    def test_missing_lecture_file_rejected(self, mock_fetch):
+        mock_fetch.return_value = [
+            {**lecture, "file_exists": False}
+            for lecture in self.lectures
+        ]
+
+        response = self.post_exam(self.payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Quiz.objects.count(), 0)
+
+    @patch("quiz.views.fetch_course_lectures")
+    def test_insufficient_questions_rejected(self, mock_fetch):
+        mock_fetch.return_value = self.lectures
+
+        payload = self.payload.copy()
+        payload["num_questions"] = 1
+
+        response = self.post_exam(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Quiz.objects.count(), 0)
+
+    @patch("quiz.views.fetch_course_lectures")
+    def test_course_service_failure(self, mock_fetch):
+        mock_fetch.side_effect = RuntimeError(
+            "Course Service unavailable"
+        )
+
+        response = self.post_exam(self.payload)
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(Quiz.objects.count(), 0)
+
+class ExamQuestionDistributionTests(TestCase):
+    def test_balanced_distribution(self):
+        from .services.exam_generator import distribute_questions
+
+        result = distribute_questions(["A", "B", "C"], 9)
+        self.assertEqual(result, [("A", 3), ("B", 3), ("C", 3)])
+
+    def test_distribution_with_remainder(self):
+        from .services.exam_generator import distribute_questions
+
+        result = distribute_questions(["A", "B", "C"], 10)
+        self.assertEqual(result, [("A", 4), ("B", 3), ("C", 3)])
+
+    def test_reject_insufficient_questions(self):
+        from .services.exam_generator import distribute_questions
+
+        with self.assertRaises(ValueError):
+            distribute_questions(["A", "B", "C"], 2)
+
+    def test_reject_duplicate_lectures(self):
+        from .services.exam_generator import distribute_questions
+
+        with self.assertRaises(ValueError):
+            distribute_questions(["A", "A"], 5)
+
+    def test_reject_empty_lectures(self):
+        from .services.exam_generator import distribute_questions
+
+        with self.assertRaises(ValueError):
+            distribute_questions([], 5)
+
+class ExamQuestionGenerationTests(TestCase):
+
+    @patch("quiz.services.quiz_generator.generate_quiz")
+    def test_generate_questions_from_multiple_lectures(self, mock_generate):
+        from .services.exam_generator import generate_exam_questions
+
+        mock_generate.side_effect = [
+            ("raw-A", [
+                {"question_type": "MCQ", "question_text": "Question A1"},
+                {"question_type": "MCQ", "question_text": "Question A2"},
+            ]),
+            ("raw-B", [
+                {"question_type": "MCQ", "question_text": "Question B1"},
+                {"question_type": "MCQ", "question_text": "Question B2"},
+            ]),
+        ]
+
+        raw, questions = generate_exam_questions(
+            {"A": "Lecture A text", "B": "Lecture B text"},
+            num_questions=4,
+            question_mode="mcq",
+        )
+
+        self.assertEqual(len(questions), 4)
+        self.assertEqual(raw, {"A": "raw-A", "B": "raw-B"})
+        self.assertEqual(
+            [q["source_lecture_id"] for q in questions],
+            ["A", "A", "B", "B"],
+        )
+        self.assertEqual(mock_generate.call_count, 2)
+
+    @patch("quiz.services.quiz_generator.generate_quiz")
+    def test_reject_duplicate_questions(self, mock_generate):
+        from .services.exam_generator import generate_exam_questions
+
+        mock_generate.side_effect = [
+            ("raw-A", [
+                {"question_type": "MCQ", "question_text": "Same question"},
+            ]),
+            ("raw-B", [
+                {"question_type": "MCQ", "question_text": " same QUESTION "},
+            ]),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "unique questions"):
+            generate_exam_questions(
+                {"A": "Text A", "B": "Text B"},
+                num_questions=2,
+                question_mode="mcq",
+            )
+
+    @patch("quiz.services.quiz_generator.generate_quiz")
+    def test_reject_insufficient_generated_questions(self, mock_generate):
+        from .services.exam_generator import generate_exam_questions
+
+        mock_generate.return_value = ("raw", [])
+
+        with self.assertRaisesRegex(ValueError, "expected 2"):
+            generate_exam_questions(
+                {"A": "Lecture text"},
+                num_questions=2,
+            )
+
+    @patch("quiz.services.quiz_generator.generate_quiz")
+    def test_reject_empty_lecture_text(self, mock_generate):
+        from .services.exam_generator import generate_exam_questions
+
+        with self.assertRaisesRegex(ValueError, "no usable text"):
+            generate_exam_questions(
+                {"A": "   "},
+                num_questions=1,
+            )
+
+        mock_generate.assert_not_called()
+
+    def test_reject_invalid_question_mode(self):
+        from .services.exam_generator import generate_exam_questions
+
+        with self.assertRaisesRegex(ValueError, "Invalid question mode"):
+            generate_exam_questions(
+                {"A": "Lecture text"},
+                num_questions=1,
+                question_mode="essay",
+            )
+
+
+
+class ExamLectureTextCollectorTests(TestCase):
+
+    def test_collect_multiple_lectures(self):
+        from .services.exam_generator import collect_exam_lecture_texts
+
+        texts = {"A": "  Lecture A  ", "B": "Lecture B"}
+        loaded = []
+
+        def load_text(lecture_id):
+            loaded.append(lecture_id)
+            return texts[lecture_id]
+
+        result = collect_exam_lecture_texts(["A", "B"], load_text)
+
+        self.assertEqual(result, {"A": "Lecture A", "B": "Lecture B"})
+        self.assertEqual(loaded, ["A", "B"])
+
+    def test_reject_empty_lecture_list(self):
+        from .services.exam_generator import collect_exam_lecture_texts
+
+        with self.assertRaises(ValueError):
+            collect_exam_lecture_texts([], lambda lecture_id: "Text")
+
+    def test_reject_duplicate_lectures(self):
+        from .services.exam_generator import collect_exam_lecture_texts
+
+        with self.assertRaises(ValueError):
+            collect_exam_lecture_texts(["A", "A"], lambda lecture_id: "Text")
+
+    def test_reject_empty_lecture_text(self):
+        from .services.exam_generator import collect_exam_lecture_texts
+
+        with self.assertRaisesRegex(ValueError, "no usable text"):
+            collect_exam_lecture_texts(["A"], lambda lecture_id: "   ")

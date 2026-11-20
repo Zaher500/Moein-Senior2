@@ -6,6 +6,7 @@ urlpatterns = [
     path('generate/file/', views.generate_from_file_view, name='generate_file'),
     path('generate/existing/', views.generate_from_existing_view, name='generate_existing'),
     path('generate/scope/', views.generate_from_scope_view, name='generate_scope'),
+    path('generate/exam/', views.generate_exam_view, name='generate_exam'),
     
     # Quiz Management / Retrieval
     path('progress/', views.learning_progress_view, name='learning_progress'),

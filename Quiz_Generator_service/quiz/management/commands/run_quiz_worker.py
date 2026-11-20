@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 import pika
 
 from django.conf import settings
@@ -8,6 +9,12 @@ from django.db.models import Exists, OuterRef
 
 from quiz.models import Quiz, QuizAttempt, Question
 from quiz.services.quiz_generator import generate_quiz
+from quiz.services.exam_generator import (
+    generate_exam_questions,
+    collect_exam_lecture_texts,
+    distribute_questions,
+)
+from quiz.services.file_extractor import extract_text_from_file
 from quiz.services.mongo_store import store_llm_response
 
 
@@ -129,22 +136,88 @@ class Command(BaseCommand):
                     )
                     return
 
-                if not text:
-                    raise Exception(
-                        "No text found in RabbitMQ payload"
+                if quiz.source == "EXAM":
+                    from quiz.services.exam_staging import (
+                        open_staged_exam_lecture_file,
+                    )
+
+                    difficulty = quiz.difficulty
+                    student_id = str(quiz.student_id)
+                    lecture_id = None
+
+                    def load_exam_text(selected_lecture_id):
+                        file_obj, filename = (
+                            open_staged_exam_lecture_file(
+                                quiz.quiz_id,
+                                selected_lecture_id,
+                            )
+                        )
+
+                        with file_obj:
+                            return extract_text_from_file(
+                                file_obj,
+                                filename,
+                            )
+
+                    lecture_texts = collect_exam_lecture_texts(
+                        quiz.exam_lecture_ids,
+                        load_exam_text,
+                    )
+
+                    raw_response, valid_questions = (
+                        generate_exam_questions(
+                            lecture_texts=lecture_texts,
+                            num_questions=quiz.num_questions,
+                            question_mode=question_mode,
+                            difficulty=difficulty,
+                        )
+                    )
+
+                    if (
+                        not isinstance(valid_questions, list)
+                        or len(valid_questions) != quiz.num_questions
+                    ):
+                        raise ValueError(
+                            "Exam generation returned an incomplete "
+                            "question set"
+                        )
+
+                    expected_counts = dict(
+                        distribute_questions(
+                            quiz.exam_lecture_ids,
+                            quiz.num_questions,
+                        )
+                    )
+
+                    actual_counts = Counter(
+                        str(question.get("source_lecture_id"))
+                        for question in valid_questions
+                        if isinstance(question, dict)
+                    )
+
+                    if actual_counts != expected_counts:
+                        raise ValueError(
+                            "Exam questions do not match "
+                            "lecture distribution"
+                        )
+
+                else:
+                    if not text:
+                        raise Exception(
+                            "No text found in RabbitMQ payload"
+                        )
+
+                    raw_response, valid_questions = generate_quiz(
+                        text=text,
+                        num_questions=num_questions,
+                        scope=scope,
+                        question_mode=question_mode,
+                        difficulty=difficulty,
                     )
 
                 self.stdout.write(
                     f"Processing quiz {quiz_id} "
                     f"with difficulty {difficulty}/5"
-                )
-
-                raw_response, valid_questions = generate_quiz(
-                    text=text,
-                    num_questions=num_questions,
-                    scope=scope,
-                    question_mode=question_mode,
-                    difficulty=difficulty,
                 )
 
                 replacement_blocked = False
@@ -191,6 +264,11 @@ class Command(BaseCommand):
                                 explanation=q_data.get(
                                     "explanation",
                                     ""
+                                ),
+                                source_lecture_id=(
+                                    q_data.get("source_lecture_id")
+                                    if quiz.source == "EXAM"
+                                    else None
                                 ),
                                 order=i
                             )
@@ -261,6 +339,27 @@ class Command(BaseCommand):
                         f"{str(e)}"
                     )
                 )
+
+            finally:
+                if (
+                    claimed
+                    and quiz is not None
+                    and quiz.source == "EXAM"
+                ):
+                    try:
+                        from quiz.services.exam_staging import (
+                            cleanup_exam_staging,
+                        )
+
+                        cleanup_exam_staging(quiz.quiz_id)
+
+                    except OSError as cleanup_error:
+                        self.stdout.write(
+                            self.style.ERROR(
+                                f"Exam staging cleanup failed "
+                                f"for {quiz_id}: {cleanup_error}"
+                            )
+                        )
 
             ch.basic_ack(
                 delivery_tag=method.delivery_tag
